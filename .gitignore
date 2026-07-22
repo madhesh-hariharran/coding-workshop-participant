@@ -256,3 +256,15 @@ tfplan
 
 # Snyk Security Extension - AI Rules (auto-generated)
 .github/instructions/snyk_rules.instructions.md
+
+# Local development overrides
+*.override.tf
+
+# Pip installed packages inside backend service folders
+backend/**/.pip_installed
+backend/**/bcrypt/
+backend/**/bcrypt-*/
+backend/**/jwt/
+backend/**/psycopg2/
+backend/**/psycopg2_binary*/
+backend/**/pyjwt-*/

@@ -8,6 +8,7 @@ Endpoints:
 import json
 import logging
 import os
+import re
 import sys
 
 import bcrypt
@@ -25,6 +26,29 @@ logger.setLevel(logging.INFO)
 init_schema()
 
 
+def validate_email(email: str) -> str | None:
+    """Returns error message or None if valid."""
+    pattern = r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$'
+    if not re.match(pattern, email):
+        return "Invalid email format"
+    return None
+
+
+def validate_password(password: str) -> str | None:
+    """Returns error message or None if valid."""
+    if len(password) < 8:
+        return "Password must be at least 8 characters"
+    if not re.search(r'[A-Z]', password):
+        return "Password must contain at least one uppercase letter"
+    if not re.search(r'[a-z]', password):
+        return "Password must contain at least one lowercase letter"
+    if not re.search(r'\d', password):
+        return "Password must contain at least one number"
+    if not re.search(r'[!@#$%^&*(),.?":{}|<>]', password):
+        return "Password must contain at least one special character"
+    return None
+
+
 def register(body: dict) -> dict:
     name = (body.get("name") or "").strip()
     email = (body.get("email") or "").strip().lower()
@@ -33,6 +57,14 @@ def register(body: dict) -> dict:
 
     if not name or not email or not password:
         return response(400, {"error": "name, email and password are required"})
+
+    email_error = validate_email(email)
+    if email_error:
+        return response(400, {"error": email_error})
+
+    password_error = validate_password(password)
+    if password_error:
+        return response(400, {"error": password_error})
 
     if role not in ("admin", "manager", "contributor", "viewer"):
         return response(400, {"error": "Invalid role. Must be admin, manager, contributor or viewer"})
@@ -155,7 +187,7 @@ if __name__ == "__main__":
         "body": json.dumps({
             "name": "Admin User",
             "email": "admin@acme.com",
-            "password": "admin123",
+            "password": "Admin@123",
             "role": "admin"
         }),
     }
