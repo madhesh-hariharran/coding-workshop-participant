@@ -1,11 +1,12 @@
 """
 Shared PostgreSQL connection and schema initialization.
+Uses psycopg (v3) with module-level connection pooling for Lambda performance.
 """
 import logging
 import os
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import psycopg
+from psycopg.rows import dict_row
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -19,9 +20,20 @@ PG_CONFIG = (
     f"connect_timeout=15"
 )
 
+# Module-level connection — persists across Lambda invocations in same container
+PG_CONN = None
+
 
 def get_connection():
-    return psycopg2.connect(PG_CONFIG, cursor_factory=RealDictCursor)
+    global PG_CONN
+    if PG_CONN is None or PG_CONN.closed:
+        PG_CONN = psycopg.connect(PG_CONFIG, row_factory=dict_row)
+    return PG_CONN
+
+
+def reset_connection():
+    global PG_CONN
+    PG_CONN = None
 
 
 def init_schema():
@@ -89,7 +101,6 @@ def init_schema():
         UNIQUE (resource_id, project_id)
     );
     """
-    conn = None
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -98,9 +109,5 @@ def init_schema():
         logger.info("Schema initialized successfully")
     except Exception as e:
         logger.error("Schema init failed: %s", str(e))
-        if conn:
-            conn.rollback()
+        reset_connection()
         raise
-    finally:
-        if conn:
-            conn.close()
