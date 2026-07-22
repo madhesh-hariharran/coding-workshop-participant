@@ -268,3 +268,8 @@ backend/**/jwt/
 backend/**/psycopg2/
 backend/**/psycopg2_binary*/
 backend/**/pyjwt-*/
+backend/**/psycopg/
+backend/**/psycopg_binary/
+backend/**/psycopg_binary.libs/
+backend/**/psycopg-*.dist-info/
+backend/**/psycopg_binary-*.dist-info/
