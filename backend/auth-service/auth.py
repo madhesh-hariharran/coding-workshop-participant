@@ -1,6 +1,5 @@
 """
 Shared JWT authentication and RBAC middleware.
-Source of truth: backend/_shared/auth.py
 """
 import json
 import logging
@@ -30,7 +29,7 @@ ROLE_HIERARCHY = {
 
 def encode_token(user_id: int, email: str, role: str) -> str:
     payload = {
-        "sub": user_id,
+        "sub": str(user_id),  # must be string per JWT spec
         "email": email,
         "role": role,
         "exp": datetime.now(timezone.utc) + timedelta(hours=TOKEN_EXPIRY_HOURS),
@@ -74,7 +73,8 @@ def require_auth(min_role: str = "viewer"):
                 payload = decode_token(token)
             except jwt.ExpiredSignatureError:
                 return response(401, {"error": "Token has expired"})
-            except jwt.InvalidTokenError:
+            except jwt.InvalidTokenError as e:
+                logger.error("Invalid token error: %s", str(e))
                 return response(401, {"error": "Invalid token"})
 
             user_role = payload.get("role", "viewer")
