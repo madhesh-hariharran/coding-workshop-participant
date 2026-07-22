@@ -57,3 +57,9 @@ variable "aws_eks_enabled" {
   type        = bool
   default     = false
 }
+
+variable "jwt_secret" {
+  description = "Secret key for JWT token signing"
+  type        = string
+  sensitive   = true
+}
