@@ -1,16 +1,17 @@
 """
-Allocations Service: CRUD operations for resource-project allocations.
+Allocations Service: CRUD for resource-project allocations.
 Endpoints:
-    POST   /allocations-service          - Create allocation (manager+)
-    GET    /allocations-service          - List all allocations (viewer+)
-    GET    /allocations-service/{id}     - Get allocation by ID (viewer+)
-    PUT    /allocations-service/{id}     - Update allocation (manager+)
-    DELETE /allocations-service/{id}     - Delete allocation (manager+)
+    POST   /allocations-service       - Create allocation (manager+)
+    GET    /allocations-service       - List allocations (viewer+)
+    GET    /allocations-service/{id}  - Get allocation (viewer+)
+    PUT    /allocations-service/{id}  - Update allocation (manager+)
+    DELETE /allocations-service/{id}  - Delete allocation (manager+)
 """
 import json
 import logging
 import os
 import sys
+from datetime import date
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -21,6 +22,16 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 init_schema()
+
+
+def get_id_from_path(path: str) -> int | None:
+    parts = [p for p in path.split("/") if p]
+    for part in reversed(parts):
+        try:
+            return int(part)
+        except ValueError:
+            continue
+    return None
 
 
 def validate_allocation(body: dict, partial: bool = False) -> str | None:
@@ -40,16 +51,12 @@ def validate_allocation(body: dict, partial: bool = False) -> str | None:
                 return "allocation_percentage must be between 1 and 100"
         except (ValueError, TypeError):
             return "allocation_percentage must be a number"
-    return None
 
+    start_date = body.get("start_date")
+    end_date = body.get("end_date")
+    if start_date and end_date and str(end_date) < str(start_date):
+        return "end_date must be after start_date"
 
-def get_id_from_path(path: str) -> int | None:
-    parts = [p for p in path.split("/") if p]
-    for part in reversed(parts):
-        try:
-            return int(part)
-        except ValueError:
-            continue
     return None
 
 
@@ -85,7 +92,7 @@ def list_allocations(event: dict, context, current_user: dict = None) -> dict:
             cur.execute(query, args)
             allocations = [dict(r) for r in cur.fetchall()]
 
-            # Get over-allocated resources
+            # Over-allocated resources warning
             cur.execute("""
                 SELECT r.id, r.name,
                        SUM(a.allocation_percentage) as total_allocation
@@ -157,10 +164,19 @@ def create_allocation(event: dict, context, current_user: dict = None) -> dict:
             if not cur.fetchone():
                 return response(404, {"error": "Resource not found"})
 
-            # Verify project exists
-            cur.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
-            if not cur.fetchone():
+            # Verify project exists and check status/dates
+            cur.execute("SELECT id, status, end_date, start_date FROM projects WHERE id = %s", (project_id,))
+            project = cur.fetchone()
+            if not project:
                 return response(404, {"error": "Project not found"})
+
+            # Block allocation to completed projects
+            if project["status"] == "completed":
+                return response(400, {"error": "Cannot allocate resources to a completed project"})
+
+            # Block allocation to projects past their end date
+            if project["end_date"] and str(project["end_date"]) < str(date.today()):
+                return response(400, {"error": f"Cannot allocate resources to a project that has already ended ({project['end_date']})"})
 
             # Check for duplicate allocation
             cur.execute("""
@@ -170,16 +186,14 @@ def create_allocation(event: dict, context, current_user: dict = None) -> dict:
             if cur.fetchone():
                 return response(400, {"error": "Resource is already allocated to this project"})
 
-            # Check total allocation won't exceed 100%
+            # Check total allocation — warn but allow over 100%
             cur.execute("""
                 SELECT COALESCE(SUM(allocation_percentage), 0) as total
                 FROM allocations WHERE resource_id = %s
             """, (resource_id,))
-            current_total = cur.fetchone()["total"]
-            if current_total + allocation_percentage > 100:
-                return response(400, {
-                    "error": f"Over-allocation: resource is already at {current_total}%. Adding {allocation_percentage}% would exceed 100%"
-                })
+            current_total = int(cur.fetchone()["total"])
+            new_total = current_total + allocation_percentage
+            is_over_allocated = new_total > 100
 
             cur.execute("""
                 INSERT INTO allocations
@@ -189,7 +203,12 @@ def create_allocation(event: dict, context, current_user: dict = None) -> dict:
             """, (resource_id, project_id, allocation_percentage, start_date, end_date))
             allocation = dict(cur.fetchone())
         conn.commit()
-        return response(201, {"allocation": allocation})
+
+        result = {"allocation": allocation}
+        if is_over_allocated:
+            result["warning"] = f"Resource is now over-allocated at {new_total}% total across all projects"
+
+        return response(201, result)
     except Exception as e:
         logger.error("Create allocation error: %s", str(e))
         conn.rollback()
@@ -232,7 +251,22 @@ def update_allocation(event: dict, context, allocation_id: int = None, current_u
         if not allocation:
             return response(404, {"error": "Allocation not found"})
         conn.commit()
-        return response(200, {"allocation": dict(allocation)})
+
+        allocation = dict(allocation)
+
+        # Check if update causes over-allocation
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COALESCE(SUM(allocation_percentage), 0) as total
+                FROM allocations WHERE resource_id = %s
+            """, (allocation["resource_id"],))
+            total = int(cur.fetchone()["total"])
+
+        result = {"allocation": allocation}
+        if total > 100:
+            result["warning"] = f"Resource is over-allocated at {total}% total across all projects"
+
+        return response(200, result)
     except Exception as e:
         logger.error("Update allocation error: %s", str(e))
         conn.rollback()

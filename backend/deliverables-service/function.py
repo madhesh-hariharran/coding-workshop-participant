@@ -1,11 +1,11 @@
 """
 Deliverables Service: CRUD operations for project deliverables.
 Endpoints:
-    POST   /deliverables-service              - Create deliverable (contributor+)
-    GET    /deliverables-service              - List all deliverables (viewer+)
-    GET    /deliverables-service/{id}         - Get deliverable by ID (viewer+)
-    PUT    /deliverables-service/{id}         - Update deliverable (contributor+)
-    DELETE /deliverables-service/{id}         - Delete deliverable (manager+)
+    POST   /deliverables-service          - Create deliverable (contributor+)
+    GET    /deliverables-service          - List all deliverables (viewer+)
+    GET    /deliverables-service/{id}     - Get deliverable by ID (viewer+)
+    PUT    /deliverables-service/{id}     - Update deliverable (contributor+)
+    DELETE /deliverables-service/{id}     - Delete deliverable (manager+)
 """
 import json
 import logging
@@ -23,17 +23,6 @@ logger.setLevel(logging.INFO)
 init_schema()
 
 
-def validate_deliverable(body: dict, partial: bool = False) -> str | None:
-    if not partial and not (body.get("title") or "").strip():
-        return "title is required"
-    if not partial and not body.get("project_id"):
-        return "project_id is required"
-    status = body.get("status")
-    if status and status not in ("pending", "in_progress", "completed"):
-        return "status must be pending, in_progress or completed"
-    return None
-
-
 def get_id_from_path(path: str) -> int | None:
     parts = [p for p in path.split("/") if p]
     for part in reversed(parts):
@@ -41,6 +30,47 @@ def get_id_from_path(path: str) -> int | None:
             return int(part)
         except ValueError:
             continue
+    return None
+
+
+def has_circular_dependency(conn, deliverable_id: int, proposed_depends_on: int) -> bool:
+    """
+    Check if setting deliverable_id.depends_on = proposed_depends_on
+    would create a circular dependency.
+    Traverses the dependency chain upward from proposed_depends_on.
+    """
+    visited = set()
+    current = proposed_depends_on
+
+    while current is not None:
+        if current == deliverable_id:
+            return True
+        if current in visited:
+            break
+        visited.add(current)
+        with conn.cursor() as cur:
+            cur.execute("SELECT depends_on FROM deliverables WHERE id = %s", (current,))
+            row = cur.fetchone()
+            current = row["depends_on"] if row else None
+
+    return False
+
+
+def validate_deliverable(body: dict, partial: bool = False) -> str | None:
+    if not partial:
+        if not (body.get("title") or "").strip():
+            return "title is required"
+        if not body.get("project_id"):
+            return "project_id is required"
+
+    title = body.get("title")
+    if title is not None and len(title.strip()) > 255:
+        return "title must be under 255 characters"
+
+    status = body.get("status")
+    if status and status not in ("pending", "in_progress", "completed"):
+        return "status must be pending, in_progress or completed"
+
     return None
 
 
@@ -57,6 +87,8 @@ def list_deliverables(event: dict, context, current_user: dict = None) -> dict:
             query = """
                 SELECT d.*,
                        p.name as project_name,
+                       p.start_date as project_start_date,
+                       p.end_date as project_end_date,
                        u.name as assignee_name,
                        dep.title as depends_on_title
                 FROM deliverables d
@@ -73,8 +105,8 @@ def list_deliverables(event: dict, context, current_user: dict = None) -> dict:
                 query += " AND d.status = %s"
                 args.append(status_filter)
             if search:
-                query += " AND (d.title ILIKE %s OR d.description ILIKE %s)"
-                args.extend([f"%{search}%", f"%{search}%"])
+                query += " AND d.title ILIKE %s"
+                args.append(f"%{search}%")
             query += " ORDER BY d.created_at DESC"
             cur.execute(query, args)
             deliverables = [dict(r) for r in cur.fetchall()]
@@ -92,6 +124,8 @@ def get_deliverable(event: dict, context, deliverable_id: int = None, current_us
             cur.execute("""
                 SELECT d.*,
                        p.name as project_name,
+                       p.start_date as project_start_date,
+                       p.end_date as project_end_date,
                        u.name as assignee_name,
                        dep.title as depends_on_title
                 FROM deliverables d
@@ -131,23 +165,39 @@ def create_deliverable(event: dict, context, current_user: dict = None) -> dict:
     try:
         conn = get_connection()
         with conn.cursor() as cur:
-            # Verify project exists
-            cur.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
-            if not cur.fetchone():
+            # Verify project exists and get its dates
+            cur.execute("SELECT id, status, start_date, end_date FROM projects WHERE id = %s", (project_id,))
+            project = cur.fetchone()
+            if not project:
                 return response(404, {"error": "Project not found"})
 
-            # Verify depends_on exists if provided
+            # Validate due_date against project dates
+            if due_date and project["start_date"] and str(due_date) < str(project["start_date"]):
+                return response(400, {"error": f"Due date cannot be before project start date ({project['start_date']})"})
+            if due_date and project["end_date"] and str(due_date) > str(project["end_date"]):
+                return response(400, {"error": f"Due date cannot be after project end date ({project['end_date']})"})
+
+            # Verify depends_on exists and belongs to same project
             if depends_on:
-                cur.execute("SELECT id FROM deliverables WHERE id = %s", (depends_on,))
+                cur.execute("SELECT id, project_id, status FROM deliverables WHERE id = %s", (depends_on,))
+                dep = cur.fetchone()
+                if not dep:
+                    return response(404, {"error": "Dependency deliverable not found"})
+                if dep["project_id"] != project_id:
+                    return response(400, {"error": "Dependency must be in the same project"})
+
+            # Verify assignee exists
+            if assignee_id:
+                cur.execute("SELECT id FROM users WHERE id = %s", (assignee_id,))
                 if not cur.fetchone():
-                    return response(404, {"error": "Depends-on deliverable not found"})
+                    return response(404, {"error": "Assignee not found"})
 
             cur.execute("""
                 INSERT INTO deliverables
-                    (title, description, project_id, status, due_date, assignee_id, depends_on)
+                    (project_id, title, description, status, due_date, assignee_id, depends_on)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
-            """, (title, description, project_id, status, due_date, assignee_id, depends_on))
+            """, (project_id, title, description, status, due_date, assignee_id, depends_on))
             deliverable = dict(cur.fetchone())
         conn.commit()
         return response(201, {"deliverable": deliverable})
@@ -168,31 +218,69 @@ def update_deliverable(event: dict, context, deliverable_id: int = None, current
     if error:
         return response(400, {"error": error})
 
-    fields = []
-    values = []
-    allowed = ["title", "description", "status", "due_date", "assignee_id", "depends_on"]
-
-    for field in allowed:
-        if field in body:
-            fields.append(f"{field} = %s")
-            values.append(body[field])
-
-    if not fields:
-        return response(400, {"error": "No fields to update"})
-
-    fields.append("updated_at = NOW()")
-    values.append(deliverable_id)
-
     try:
         conn = get_connection()
         with conn.cursor() as cur:
+            # Get current deliverable
+            cur.execute("""
+                SELECT d.*, p.start_date as project_start_date, p.end_date as project_end_date
+                FROM deliverables d
+                JOIN projects p ON d.project_id = p.id
+                WHERE d.id = %s
+            """, (deliverable_id,))
+            current = cur.fetchone()
+            if not current:
+                return response(404, {"error": "Deliverable not found"})
+
+            # Circular dependency check
+            if "depends_on" in body and body["depends_on"] is not None:
+                if body["depends_on"] == deliverable_id:
+                    return response(400, {"error": "A deliverable cannot depend on itself"})
+                if has_circular_dependency(conn, deliverable_id, body["depends_on"]):
+                    return response(400, {"error": "This dependency would create a circular chain"})
+
+                # Verify depends_on is in same project
+                cur.execute("SELECT project_id FROM deliverables WHERE id = %s", (body["depends_on"],))
+                dep = cur.fetchone()
+                if not dep:
+                    return response(404, {"error": "Dependency deliverable not found"})
+                if dep["project_id"] != current["project_id"]:
+                    return response(400, {"error": "Dependency must be in the same project"})
+
+            # If marking as completed, check dependency is completed
+            if body.get("status") == "completed" and current["depends_on"]:
+                cur.execute("SELECT status FROM deliverables WHERE id = %s", (current["depends_on"],))
+                dep_del = cur.fetchone()
+                if dep_del and dep_del["status"] != "completed":
+                    return response(400, {"error": "Cannot mark as completed — dependency is not yet completed"})
+
+            # Validate due_date
+            due_date = body.get("due_date")
+            if due_date:
+                if current["project_start_date"] and str(due_date) < str(current["project_start_date"]):
+                    return response(400, {"error": f"Due date cannot be before project start date ({current['project_start_date']})"})
+                if current["project_end_date"] and str(due_date) > str(current["project_end_date"]):
+                    return response(400, {"error": f"Due date cannot be after project end date ({current['project_end_date']})"})
+
+            fields = []
+            values = []
+            allowed = ["title", "description", "status", "due_date", "assignee_id", "depends_on"]
+            for field in allowed:
+                if field in body:
+                    fields.append(f"{field} = %s")
+                    values.append(body[field])
+
+            if not fields:
+                return response(400, {"error": "No fields to update"})
+
+            fields.append("updated_at = NOW()")
+            values.append(deliverable_id)
+
             cur.execute(f"""
                 UPDATE deliverables SET {', '.join(fields)}
                 WHERE id = %s RETURNING *
             """, values)
             deliverable = cur.fetchone()
-        if not deliverable:
-            return response(404, {"error": "Deliverable not found"})
         conn.commit()
         return response(200, {"deliverable": dict(deliverable)})
     except Exception as e:
@@ -206,6 +294,13 @@ def delete_deliverable(event: dict, context, deliverable_id: int = None, current
     try:
         conn = get_connection()
         with conn.cursor() as cur:
+            # Check if any other deliverable depends on this one
+            cur.execute("SELECT id, title FROM deliverables WHERE depends_on = %s", (deliverable_id,))
+            dependents = cur.fetchall()
+            if dependents:
+                names = ", ".join([d["title"] for d in dependents])
+                return response(400, {"error": f"Cannot delete — other deliverables depend on this: {names}"})
+
             cur.execute("DELETE FROM deliverables WHERE id = %s RETURNING id", (deliverable_id,))
             deleted = cur.fetchone()
         if not deleted:
@@ -233,7 +328,7 @@ def handler(event=None, context=None):
         return get_deliverable(event, context, deliverable_id=deliverable_id)
     if http_method == "POST":
         return create_deliverable(event, context)
-    if http_method == "PUT" and deliverable_id:
+    if http_method in ("PUT", "PATCH") and deliverable_id:
         return update_deliverable(event, context, deliverable_id=deliverable_id)
     if http_method == "DELETE" and deliverable_id:
         return delete_deliverable(event, context, deliverable_id=deliverable_id)

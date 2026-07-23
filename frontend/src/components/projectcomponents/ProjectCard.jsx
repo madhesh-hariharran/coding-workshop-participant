@@ -1,6 +1,6 @@
 import {
   Card, CardActionArea, CardContent, Box, Typography,
-  LinearProgress, IconButton, Tooltip
+  LinearProgress, IconButton, Tooltip, Chip
 } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -13,53 +13,45 @@ function ProjectCard({ project, onEdit, onDelete, onClick }) {
   const pct = planned > 0 ? (consumed / planned) * 100 : 0;
   const displayPct = Math.min(pct, 100);
   const budgetColor = pct >= 100 ? 'error' : pct >= 70 ? 'warning' : 'primary';
+  const isOverBudget = pct >= 100;
 
   return (
-    <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', width: '100%' }}>
-      <CardActionArea onClick={onClick} sx={{ flexGrow: 1 }}>
-        <CardContent>
-          {/* Name + Status */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-            <Typography variant="h6" fontWeight={600} sx={{ flexGrow: 1, mr: 1 }}>
-              {project.name}
-            </Typography>
+    <Card sx={{ width: '100%', display: 'flex', flexDirection: 'column', border: '1px solid', borderColor: 'divider' }}>
+      <CardActionArea onClick={onClick} sx={{ flexGrow: 1, alignItems: 'flex-start' }}>
+        <CardContent sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <Typography variant="subtitle1" fontWeight={600} sx={{ lineHeight: 1.3, mb: 0.75 }}>
+            {project.name}
+          </Typography>
+          <Box sx={{ mb: 1.5 }}>
             <StatusBadge status={project.status} />
           </Box>
-
-          {/* Description */}
           <Typography variant="body2" color="text.secondary" sx={{
-            mb: 1.5, display: '-webkit-box',
-            WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-            minHeight: '2.5em'
+            mb: 1.5, flexGrow: 1,
+            display: '-webkit-box', WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical', overflow: 'hidden'
           }}>
             {project.description || 'No description provided'}
           </Typography>
-
-          {/* Due date */}
-          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.5 }}>
             Due: {project.end_date || 'N/A'}
           </Typography>
-
-          {/* Budget */}
           <Box>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5, alignItems: 'center' }}>
               <Typography variant="caption" color="text.secondary">Budget</Typography>
-              <Typography variant="caption" fontWeight={600} color={planned > 0 ? `${budgetColor}.main` : 'text.disabled'}>
-                {planned > 0 ? `${pct.toFixed(0)}%` : 'N/A'}
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                {isOverBudget && <Chip label="Over" color="error" size="small" sx={{ height: 16, fontSize: 10 }} />}
+                <Typography variant="caption" fontWeight={600}
+                  color={planned > 0 ? `${budgetColor}.main` : 'text.disabled'}>
+                  {planned > 0 ? `${pct.toFixed(0)}%` : 'N/A'}
+                </Typography>
+              </Box>
             </Box>
-            <LinearProgress
-              variant="determinate"
-              value={planned > 0 ? displayPct : 0}
-              color={budgetColor}
-              sx={{ borderRadius: 1, height: 4, bgcolor: 'action.hover' }}
-            />
+            <LinearProgress variant="determinate" value={planned > 0 ? displayPct : 0}
+              color={budgetColor} sx={{ borderRadius: 1, height: 4, bgcolor: 'action.hover' }} />
           </Box>
         </CardContent>
       </CardActionArea>
-
-      {/* Actions */}
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1, pt: 0 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1, py: 0.5, borderTop: '1px solid', borderColor: 'divider' }}>
         <RoleGuard minRole="manager">
           <Tooltip title="Edit project">
             <IconButton size="small" onClick={(e) => { e.stopPropagation(); onEdit(project); }}>

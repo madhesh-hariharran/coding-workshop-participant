@@ -1,14 +1,14 @@
 import { Chip } from '@mui/material';
 
 const STATUS_CONFIG = {
-  // Project statuses
-  active: { label: 'Active', color: 'success' },
+  // Project statuses — 'active' from DB displayed as 'In Progress'
+  active: { label: 'In Progress', color: 'success' },
+  in_progress: { label: 'In Progress', color: 'success' },
   at_risk: { label: 'At Risk', color: 'warning' },
   on_hold: { label: 'On Hold', color: 'default' },
   completed: { label: 'Completed', color: 'info' },
   // Deliverable statuses
   pending: { label: 'Pending', color: 'default' },
-  in_progress: { label: 'In Progress', color: 'primary' },
   // Role badges
   admin: { label: 'Admin', color: 'error' },
   manager: { label: 'Manager', color: 'warning' },
@@ -23,7 +23,7 @@ function StatusBadge({ status, size = 'small' }) {
       label={config.label}
       color={config.color}
       size={size}
-      sx={{ fontWeight: 600, textTransform: 'capitalize' }}
+      sx={{ fontWeight: 600, textTransform: 'capitalize', flexShrink: 0 }}
     />
   );
 }

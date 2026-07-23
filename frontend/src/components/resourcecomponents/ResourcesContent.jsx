@@ -3,20 +3,22 @@ import {
   Box, Card, CardContent, Typography, CircularProgress, Alert,
   Button, TextField, Dialog, DialogTitle, DialogContent, DialogActions,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, IconButton, Tooltip, InputAdornment, LinearProgress, Chip
+  Paper, IconButton, Tooltip, InputAdornment, LinearProgress, Chip,
+  FormControl, InputLabel, Select, MenuItem, Divider
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SearchIcon from '@mui/icons-material/Search';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import LinkIcon from '@mui/icons-material/Link';
 import PageHeader from '../shared/PageHeader';
 import RoleGuard from '../shared/RoleGuard';
 import {
-  getResources, createResource, updateResource, deleteResource
+  getResources, createResource, updateResource, deleteResource, getEligibleUsers
 } from '../../api/resourcesApi';
 
-const EMPTY_FORM = { name: '', role_title: '', department: '' };
+const EMPTY_FORM = { name: '', role_title: '', department: '', user_id: '' };
 
 function validateField(name, value) {
   switch (name) {
@@ -25,22 +27,24 @@ function validateField(name, value) {
       if (value.trim().length > 255) return 'Name must be under 255 characters';
       return '';
     case 'role_title':
-      if (value.trim().length > 255) return 'Role title must be under 255 characters';
+      if (value && value.trim().length > 255) return 'Role title must be under 255 characters';
       return '';
     case 'department':
-      if (value.trim().length > 255) return 'Department must be under 255 characters';
+      if (value && value.trim().length > 255) return 'Department must be under 255 characters';
       return '';
     default:
       return '';
   }
 }
 
-function ResourceForm({ open, onClose, onSave, initial }) {
-  const [form, setForm] = useState(initial || EMPTY_FORM);
+function ResourceForm({ open, onClose, onSave, initial, eligibleUsers }) {
+  const [form, setForm] = useState(EMPTY_FORM);
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState('');
+
+  const selectedUser = eligibleUsers.find(u => String(u.id) === String(form.user_id));
 
   useEffect(() => {
     if (open) {
@@ -48,6 +52,7 @@ function ResourceForm({ open, onClose, onSave, initial }) {
         name: initial.name || '',
         role_title: initial.role_title || '',
         department: initial.department || '',
+        user_id: initial.user_id || '',
       } : EMPTY_FORM);
       setErrors({});
       setTouched({});
@@ -60,6 +65,14 @@ function ResourceForm({ open, onClose, onSave, initial }) {
     setForm((p) => ({ ...p, [name]: value }));
     setTouched((p) => ({ ...p, [name]: true }));
     setErrors((p) => ({ ...p, [name]: validateField(name, value) }));
+
+    // When user is selected, auto-fill name if name is empty
+    if (name === 'user_id' && value) {
+      const user = eligibleUsers.find(u => String(u.id) === String(value));
+      if (user && !form.name.trim()) {
+        setForm((p) => ({ ...p, user_id: value, name: user.name }));
+      }
+    }
   };
 
   const handleBlur = (e) => {
@@ -72,7 +85,7 @@ function ResourceForm({ open, onClose, onSave, initial }) {
     const fields = ['name', 'role_title', 'department'];
     const newErrors = {};
     fields.forEach((f) => {
-      const err = validateField(f, form[f]);
+      const err = validateField(f, form[f] || '');
       if (err) newErrors[f] = err;
     });
     if (Object.keys(newErrors).length > 0) {
@@ -82,7 +95,10 @@ function ResourceForm({ open, onClose, onSave, initial }) {
     }
     setLoading(true);
     try {
-      await onSave(form);
+      await onSave({
+        ...form,
+        user_id: form.user_id ? parseInt(form.user_id) : null,
+      });
       onClose();
     } catch (err) {
       setApiError(err.response?.data?.error || 'Failed to save resource');
@@ -99,6 +115,43 @@ function ResourceForm({ open, onClose, onSave, initial }) {
       <DialogContent>
         {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+
+          {/* Optional user link */}
+          <FormControl fullWidth>
+            <InputLabel>Link to user account (optional)</InputLabel>
+            <Select
+              name="user_id"
+              value={form.user_id}
+              label="Link to user account (optional)"
+              onChange={handleChange}
+              MenuProps={{ disablePortal: true }}
+            >
+              <MenuItem value="">No linked account</MenuItem>
+              {eligibleUsers.map((u) => (
+                <MenuItem key={u.id} value={u.id}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <LinkIcon fontSize="small" color="action" />
+                    <Box>
+                      <Typography variant="body2">{u.name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {u.email} — {u.role}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {selectedUser && (
+            <Alert severity="info" sx={{ py: 0.5 }}>
+              Linking to <strong>{selectedUser.name}</strong> ({selectedUser.email}).
+              Name will be auto-filled if empty.
+            </Alert>
+          )}
+
+          <Divider><Typography variant="caption" color="text.secondary">Resource Details</Typography></Divider>
+
           <TextField
             label="Full name" name="name" value={form.name}
             onChange={handleChange} onBlur={handleBlur}
@@ -134,6 +187,7 @@ function ResourceForm({ open, onClose, onSave, initial }) {
 
 function ResourcesContent() {
   const [resources, setResources] = useState([]);
+  const [eligibleUsers, setEligibleUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -146,8 +200,12 @@ function ResourcesContent() {
     try {
       const params = {};
       if (search) params.search = search;
-      const res = await getResources(params);
-      setResources(res.data.resources || []);
+      const [resRes, usersRes] = await Promise.all([
+        getResources(params),
+        getEligibleUsers().catch(() => ({ data: { users: [] } })),
+      ]);
+      setResources(resRes.data.resources || []);
+      setEligibleUsers(usersRes.data.users || []);
     } catch {
       setError('Failed to load resources.');
     } finally {
@@ -240,6 +298,7 @@ function ResourcesContent() {
                 <TableCell><strong>Name</strong></TableCell>
                 <TableCell><strong>Role</strong></TableCell>
                 <TableCell><strong>Department</strong></TableCell>
+                <TableCell><strong>Linked Account</strong></TableCell>
                 <TableCell><strong>Allocation</strong></TableCell>
                 <TableCell align="right"><strong>Actions</strong></TableCell>
               </TableRow>
@@ -253,15 +312,22 @@ function ResourcesContent() {
                   <TableRow key={r.id} hover>
                     <TableCell>
                       <Typography variant="body2" fontWeight={500}>{r.name}</Typography>
-                      {r.user_email && (
-                        <Typography variant="caption" color="text.secondary">{r.user_email}</Typography>
-                      )}
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2">{r.role_title || 'N/A'}</Typography>
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2">{r.department || 'N/A'}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      {r.user_email ? (
+                        <Box>
+                          <Typography variant="body2">{r.user_email}</Typography>
+                          <Chip label={r.user_role} size="small" sx={{ textTransform: 'capitalize', mt: 0.5 }} />
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="text.disabled">No linked account</Typography>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -274,9 +340,7 @@ function ResourcesContent() {
                         <Typography variant="body2" fontWeight={600} color={`${allocColor}.main`}>
                           {allocation}%
                         </Typography>
-                        {isOver && (
-                          <Chip label="Over" color="error" size="small" />
-                        )}
+                        {isOver && <Chip label="Over" color="error" size="small" />}
                       </Box>
                     </TableCell>
                     <TableCell align="right">
@@ -308,6 +372,7 @@ function ResourcesContent() {
         onClose={() => setFormOpen(false)}
         onSave={editResource ? handleEdit : handleCreate}
         initial={editResource}
+        eligibleUsers={eligibleUsers}
       />
 
       <Dialog open={Boolean(deleteConfirm)} onClose={() => setDeleteConfirm(null)}>
