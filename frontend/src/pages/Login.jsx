@@ -1,4 +1,7 @@
+import LoginContent from '../components/authcomponents/LoginContent';
+
 function Login() {
-  return <div>Login Page</div>;
+  return <LoginContent />;
 }
+
 export default Login;
