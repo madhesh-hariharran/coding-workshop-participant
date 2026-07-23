@@ -3,13 +3,20 @@ import { useNavigate, Link } from 'react-router-dom';
 import {
   Box, Card, CardContent, TextField, Button,
   Typography, Alert, CircularProgress, Divider,
-  IconButton, InputAdornment
+  IconButton, InputAdornment, Tooltip
 } from '@mui/material';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import { login as loginApi } from '../../api/authApi';
 import useAuth from '../../context/useAuth';
+
+const DEMO_USERS = [
+  { role: 'Admin',       email: 'arthur.morgan@acme.com',  password: 'Demo@1234', color: 'error' },
+  { role: 'Manager',     email: 'joel.miller@acme.com',    password: 'Demo@1234', color: 'warning' },
+  { role: 'Contributor', email: 'ellie.williams@acme.com', password: 'Demo@1234', color: 'info' },
+  { role: 'Viewer',      email: 'kratos.spartan@acme.com', password: 'Demo@1234', color: 'inherit' },
+];
 
 function LoginContent() {
   const navigate = useNavigate();
@@ -20,6 +27,7 @@ function LoginContent() {
   const [apiError, setApiError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(null);
 
   const validate = () => {
     const newErrors = {};
@@ -52,6 +60,21 @@ function LoginContent() {
       setApiError(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDemoLogin = async (demoUser) => {
+    setDemoLoading(demoUser.role);
+    setApiError('');
+    try {
+      const res = await loginApi(demoUser.email, demoUser.password);
+      const { user, token } = res.data;
+      login(user, token);
+      navigate('/dashboard');
+    } catch {
+      setApiError('Demo login failed — run scripts/seed.sh first to create demo users.');
+    } finally {
+      setDemoLoading(null);
     }
   };
 
@@ -141,6 +164,32 @@ function LoginContent() {
                 </Link>
               </Typography>
             </Box>
+          </Box>
+
+          {/* Demo Mode — small buttons, doesn't disturb original design */}
+          <Divider sx={{ mt: 3, mb: 2 }}>
+            <Typography variant="caption" color="text.secondary">Demo Mode</Typography>
+          </Divider>
+
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            {DEMO_USERS.map((u) => (
+              <Tooltip key={u.role} title={u.email} placement="top">
+                <Button
+                  key={u.role}
+                  variant="outlined"
+                  color={u.color === 'inherit' ? 'inherit' : u.color}
+                  size="small"
+                  fullWidth
+                  disabled={demoLoading !== null}
+                  onClick={() => handleDemoLogin(u)}
+                  sx={{ fontSize: 11, py: 0.5, minWidth: 0 }}
+                >
+                  {demoLoading === u.role
+                    ? <CircularProgress size={12} color="inherit" />
+                    : u.role}
+                </Button>
+              </Tooltip>
+            ))}
           </Box>
         </CardContent>
       </Card>
