@@ -1,0 +1,48 @@
+
+[1;33m=== Setup: Register test user ===[0m
+[0;32mPASS[0m Register new admin user
+
+[1;33m=== Auth Service ===[0m
+[0;32mPASS[0m Login with valid credentials
+[0;32mPASS[0m Login rejects wrong password
+[0;32mPASS[0m GET /me returns current user
+[0;32mPASS[0m Reject request without token
+
+[1;33m=== Projects Service ===[0m
+[0;32mPASS[0m POST /projects-service creates project
+[0;32mPASS[0m GET /projects-service returns list
+[0;32mPASS[0m GET /projects-service/:id returns project
+[0;32mPASS[0m PUT /projects-service/:id updates status
+[0;32mPASS[0m GET /projects-service?status=at_risk filters correctly
+[0;32mPASS[0m Reject project with end_date before start_date
+
+[1;33m=== Deliverables Service ===[0m
+[0;32mPASS[0m POST /deliverables-service creates deliverable
+[0;32mPASS[0m POST deliverable with depends_on
+[0;32mPASS[0m Reject circular dependency
+[0;32mPASS[0m Block completion when dependency not complete
+[0;32mPASS[0m GET /deliverables-service?project_id filters correctly
+
+[1;33m=== Resources Service ===[0m
+[0;32mPASS[0m POST /resources-service creates resource
+[0;32mPASS[0m POST resource with user_id link
+[0;32mPASS[0m Reject duplicate user link
+[0;32mPASS[0m GET /resources-service/eligible-users
+[0;32mPASS[0m GET /resources-service returns list
+
+[1;33m=== Allocations Service ===[0m
+[0;32mPASS[0m POST /allocations-service creates allocation
+[0;32mPASS[0m Allow over-allocation with warning
+[0;32mPASS[0m Over-allocation warning message returned
+[0;32mPASS[0m Reject duplicate allocation same project
+[0;32mPASS[0m Reject allocation to completed project
+[0;32mPASS[0m GET /allocations-service returns list with over_allocated_resources
+
+[1;33m=== Users Service ===[0m
+[0;32mPASS[0m GET /users-service returns user list (admin)
+[0;32mPASS[0m Reject non-admin access to users-service
+
+=================================================================
+Results: [0;32m29 passed[0m / [0;31m0 failed[0m / 29 total
+[0;32mAll tests passed![0m
+=================================================================

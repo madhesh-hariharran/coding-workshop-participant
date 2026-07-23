@@ -1,0 +1,65 @@
+config:
+  target: "https://d2wqugjglyrwvr.cloudfront.net"
+  phases:
+    - duration: 30
+      arrivalRate: 2
+      name: "Warm up"
+    - duration: 30
+      arrivalRate: 5
+      name: "Load test"
+  defaults:
+    headers:
+      Content-Type: "application/json"
+
+scenarios:
+  - name: "Auth and read flow"
+    weight: 60
+    flow:
+      - post:
+          url: "/api/auth-service/login"
+          json:
+            email: "arthur.morgan@acme.com"
+            password: "Demo@1234"
+          capture:
+            - json: "$.token"
+              as: "token"
+      - get:
+          url: "/api/projects-service"
+          headers:
+            Authorization: "Bearer {{ token }}"
+      - get:
+          url: "/api/deliverables-service"
+          headers:
+            Authorization: "Bearer {{ token }}"
+      - get:
+          url: "/api/resources-service"
+          headers:
+            Authorization: "Bearer {{ token }}"
+      - get:
+          url: "/api/allocations-service"
+          headers:
+            Authorization: "Bearer {{ token }}"
+
+  - name: "Dashboard data load"
+    weight: 40
+    flow:
+      - post:
+          url: "/api/auth-service/login"
+          json:
+            email: "joel.miller@acme.com"
+            password: "Demo@1234"
+          capture:
+            - json: "$.token"
+              as: "token"
+      - get:
+          url: "/api/projects-service"
+          headers:
+            Authorization: "Bearer {{ token }}"
+      - get:
+          url: "/api/projects-service?status=at_risk"
+          headers:
+            Authorization: "Bearer {{ token }}"
+      - get:
+          url: "/api/deliverables-service"
+          headers:
+            Authorization: "Bearer {{ token }}"
