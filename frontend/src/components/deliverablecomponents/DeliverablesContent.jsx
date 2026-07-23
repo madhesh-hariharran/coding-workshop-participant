@@ -51,12 +51,26 @@ function DeliverableForm({ open, onClose, onSave, initial, projects }) {
   const [touched, setTouched] = useState({});
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState('');
+  const [projectDeliverables, setProjectDeliverables] = useState([]);
 
   const selectedProject = projects.find(p => String(p.id) === String(form.project_id));
 
+  // Fetch deliverables for the selected project (for depends_on dropdown)
+  useEffect(() => {
+    if (form.project_id) {
+      getDeliverables({ project_id: form.project_id }).then(res => {
+        const all = res.data.deliverables || [];
+        // Exclude current deliverable from depends_on options
+        setProjectDeliverables(all.filter(d => !initial || d.id !== initial.id));
+      }).catch(() => setProjectDeliverables([]));
+    } else {
+      setProjectDeliverables([]);
+    }
+  }, [form.project_id, initial]);
+
   useEffect(() => {
     if (open) {
-      setForm(initial || EMPTY_FORM);
+      setForm(initial ? { ...initial, depends_on: initial.depends_on || '' } : EMPTY_FORM);
       setErrors({});
       setTouched({});
       setApiError('');
@@ -69,10 +83,10 @@ function DeliverableForm({ open, onClose, onSave, initial, projects }) {
     setForm(updatedForm);
     setTouched((p) => ({ ...p, [name]: true }));
     setErrors((p) => ({ ...p, [name]: validateField(name, value, updatedForm, projects) }));
-
-    // When project changes, re-validate due date against new project dates
-    if (name === 'project_id' && updatedForm.due_date) {
+    if (name === 'project_id') {
       setErrors((p) => ({ ...p, due_date: validateField('due_date', updatedForm.due_date, updatedForm, projects) }));
+      // Reset depends_on when project changes
+      setForm(prev => ({ ...prev, [name]: value, depends_on: '' }));
     }
   };
 
@@ -131,24 +145,20 @@ function DeliverableForm({ open, onClose, onSave, initial, projects }) {
           <FormControl fullWidth required error={touched.project_id && Boolean(errors.project_id)}>
             <InputLabel>Project</InputLabel>
             <Select name="project_id" value={form.project_id} label="Project"
-              onChange={handleChange} onBlur={handleBlur}>
+              onChange={handleChange} onBlur={handleBlur} MenuProps={{ disablePortal: true }}>
               {projects.map((p) => (
                 <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
               ))}
             </Select>
             {touched.project_id && errors.project_id && (
-              <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.5 }}>
-                {errors.project_id}
-              </Typography>
+              <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.5 }}>{errors.project_id}</Typography>
             )}
           </FormControl>
           <FormControl fullWidth>
             <InputLabel>Status</InputLabel>
-            <Select name="status" value={form.status} label="Status" onChange={handleChange}>
+            <Select name="status" value={form.status} label="Status" onChange={handleChange} MenuProps={{ disablePortal: true }}>
               {DELIVERABLE_STATUSES.map((s) => (
-                <MenuItem key={s} value={s} sx={{ textTransform: 'capitalize' }}>
-                  {s.replace('_', ' ')}
-                </MenuItem>
+                <MenuItem key={s} value={s} sx={{ textTransform: 'capitalize' }}>{s.replace('_', ' ')}</MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -160,15 +170,34 @@ function DeliverableForm({ open, onClose, onSave, initial, projects }) {
               (touched.due_date && errors.due_date) ||
               (selectedProject?.start_date && selectedProject?.end_date
                 ? `Project runs ${selectedProject.start_date} → ${selectedProject.end_date}`
-                : selectedProject?.start_date
-                ? `Project starts ${selectedProject.start_date}`
-                : selectedProject?.end_date
-                ? `Project ends ${selectedProject.end_date}`
-                : '')
+                : selectedProject?.end_date ? `Project ends ${selectedProject.end_date}` : '')
             }
-            fullWidth
-            slotProps={{ inputLabel: { shrink: true } }}
+            fullWidth slotProps={{ inputLabel: { shrink: true } }}
           />
+          {/* Depends on — only shown when project is selected and has other deliverables */}
+          {form.project_id && projectDeliverables.length > 0 && (
+            <FormControl fullWidth>
+              <InputLabel>Depends on (optional)</InputLabel>
+              <Select name="depends_on" value={form.depends_on}
+                label="Depends on (optional)" onChange={handleChange}
+                MenuProps={{ disablePortal: true }}>
+                <MenuItem value="">No dependency</MenuItem>
+                {projectDeliverables.map((d) => (
+                  <MenuItem key={d.id} value={d.id}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <StatusBadge status={d.status} />
+                      <Typography variant="body2">{d.title}</Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
+          {form.project_id && projectDeliverables.length === 0 && (
+            <Typography variant="caption" color="text.secondary">
+              No other deliverables in this project to depend on.
+            </Typography>
+          )}
         </Box>
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>
@@ -284,9 +313,7 @@ function DeliverablesContent() {
           <InputLabel>Project</InputLabel>
           <Select value={projectFilter} label="Project" onChange={(e) => setProjectFilter(e.target.value)}>
             <MenuItem value="">All projects</MenuItem>
-            {projects.map((p) => (
-              <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>
-            ))}
+            {projects.map((p) => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
           </Select>
         </FormControl>
         <Box sx={{ flexGrow: 1 }} />
@@ -305,9 +332,7 @@ function DeliverablesContent() {
           <CardContent sx={{ textAlign: 'center', py: 6 }}>
             <Typography variant="h6" color="text.secondary">No deliverables found</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              {search || statusFilter || projectFilter
-                ? 'Try adjusting your filters'
-                : 'Add your first deliverable to get started'}
+              {search || statusFilter || projectFilter ? 'Try adjusting your filters' : 'Add your first deliverable to get started'}
             </Typography>
           </CardContent>
         </Card>
@@ -329,36 +354,33 @@ function DeliverablesContent() {
                 <TableRow key={d.id} hover>
                   <TableCell>
                     <Typography variant="body2" fontWeight={500}>{d.title}</Typography>
-                    {d.description && (
-                      <Typography variant="caption" color="text.secondary">{d.description}</Typography>
-                    )}
+                    {d.description && <Typography variant="caption" color="text.secondary">{d.description}</Typography>}
                   </TableCell>
                   <TableCell>
-                    <Chip
-                      label={d.project_name || 'N/A'}
-                      size="small" variant="outlined"
+                    <Chip label={d.project_name || 'N/A'} size="small" variant="outlined"
                       onClick={() => d.project_id && navigate(`/projects/${d.project_id}`)}
                       sx={{ cursor: d.project_id ? 'pointer' : 'default' }}
                     />
                   </TableCell>
                   <TableCell>
                     <RoleGuard minRole="contributor" fallback={<StatusBadge status={d.status} />}>
-                      <Select
-                        value={d.status} size="small" variant="standard"
+                      <Select value={d.status} size="small" variant="standard"
                         onChange={(e) => handleQuickStatus(d.id, e.target.value)}
                         sx={{ '&:before': { display: 'none' } }}
-                      >
+                        MenuProps={{ disablePortal: true }}>
                         {DELIVERABLE_STATUSES.map((s) => (
                           <MenuItem key={s} value={s}><StatusBadge status={s} /></MenuItem>
                         ))}
                       </Select>
                     </RoleGuard>
                   </TableCell>
+                  <TableCell><Typography variant="body2">{d.due_date || 'N/A'}</Typography></TableCell>
                   <TableCell>
-                    <Typography variant="body2">{d.due_date || 'N/A'}</Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">{d.depends_on_title || 'N/A'}</Typography>
+                    {d.depends_on_title ? (
+                      <Chip label={d.depends_on_title} size="small" variant="outlined" />
+                    ) : (
+                      <Typography variant="body2" color="text.disabled">None</Typography>
+                    )}
                   </TableCell>
                   <TableCell align="right">
                     <Tooltip title="View project">
@@ -399,9 +421,7 @@ function DeliverablesContent() {
       <Dialog open={Boolean(deleteConfirm)} onClose={() => setDeleteConfirm(null)}>
         <DialogTitle fontWeight={600}>Delete Deliverable</DialogTitle>
         <DialogContent>
-          <Typography>
-            Delete <strong>{deleteConfirm?.title}</strong>? This cannot be undone.
-          </Typography>
+          <Typography>Delete <strong>{deleteConfirm?.title}</strong>? This cannot be undone.</Typography>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setDeleteConfirm(null)} disabled={deleteLoading}>Cancel</Button>

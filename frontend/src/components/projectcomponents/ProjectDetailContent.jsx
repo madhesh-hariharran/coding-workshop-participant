@@ -5,12 +5,15 @@ import {
   Button, Grid, Chip, LinearProgress, Tabs, Tab, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   Select, MenuItem, FormControl, InputLabel, Tooltip,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Paper, InputAdornment
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
+import CheckIcon from '@mui/icons-material/Check';
+import CloseIcon from '@mui/icons-material/Close';
 import StatusBadge from '../shared/StatusBadge';
 import RoleGuard from '../shared/RoleGuard';
 import { getProject, updateProject } from '../../api/projectsApi';
@@ -42,17 +45,77 @@ function validateDeliverableField(name, value, project) {
   }
 }
 
-function DeliverableForm({ open, onClose, onSave, initial, projectId, project }) {
-  const EMPTY = { title: '', description: '', status: 'pending', due_date: '', project_id: projectId };
+// Inline editable field component
+function InlineField({ label, value, onSave, type = 'text', minRole = 'manager', prefix = '' }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value || '');
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave(draft);
+      setEditing(false);
+    } catch {
+      // error handled by parent
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setDraft(value || '');
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <TextField
+          value={draft} onChange={(e) => setDraft(e.target.value)}
+          type={type} size="small" autoFocus
+          slotProps={type === 'date' ? { inputLabel: { shrink: true } } : {}}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') handleCancel(); }}
+        />
+        <IconButton size="small" color="primary" onClick={handleSave} disabled={saving}>
+          <CheckIcon fontSize="small" />
+        </IconButton>
+        <IconButton size="small" onClick={handleCancel} disabled={saving}>
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </Box>
+    );
+  }
+
+  return (
+    <RoleGuard minRole={minRole} fallback={
+      <Typography variant="body2">{prefix}{value || 'N/A'}</Typography>
+    }>
+      <Box
+        sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', '&:hover .edit-icon': { opacity: 1 } }}
+        onClick={() => { setDraft(value || ''); setEditing(true); }}
+      >
+        <Typography variant="body2">{prefix}{value || <span style={{ color: '#aaa' }}>Click to set {label}</span>}</Typography>
+        <EditIcon className="edit-icon" fontSize="small" sx={{ opacity: 0, transition: 'opacity 0.2s', color: 'text.secondary', fontSize: 14 }} />
+      </Box>
+    </RoleGuard>
+  );
+}
+
+function DeliverableForm({ open, onClose, onSave, initial, projectId, project, deliverables }) {
+  const EMPTY = { title: '', description: '', status: 'pending', due_date: '', project_id: projectId, depends_on: '' };
   const [form, setForm] = useState(initial || EMPTY);
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState('');
 
+  // Available deliverables for depends_on (exclude current one)
+  const availableDeliverables = deliverables.filter(d => !initial || d.id !== initial.id);
+
   useEffect(() => {
     if (open) {
-      setForm(initial || EMPTY);
+      setForm(initial ? { ...initial, depends_on: initial.depends_on || '' } : EMPTY);
       setErrors({});
       setTouched({});
       setApiError('');
@@ -82,7 +145,10 @@ function DeliverableForm({ open, onClose, onSave, initial, projectId, project })
     }
     setLoading(true);
     try {
-      await onSave(form);
+      await onSave({
+        ...form,
+        depends_on: form.depends_on ? parseInt(form.depends_on) : null,
+      });
       onClose();
     } catch (err) {
       setApiError(err.response?.data?.error || 'Failed to save deliverable');
@@ -114,9 +180,7 @@ function DeliverableForm({ open, onClose, onSave, initial, projectId, project })
             <InputLabel>Status</InputLabel>
             <Select name="status" value={form.status} label="Status" onChange={handleChange}>
               {DELIVERABLE_STATUSES.map((s) => (
-                <MenuItem key={s} value={s} sx={{ textTransform: 'capitalize' }}>
-                  {s.replace('_', ' ')}
-                </MenuItem>
+                <MenuItem key={s} value={s} sx={{ textTransform: 'capitalize' }}>{s.replace('_', ' ')}</MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -130,15 +194,32 @@ function DeliverableForm({ open, onClose, onSave, initial, projectId, project })
                 ? `Project runs ${project.start_date} → ${project.end_date}`
                 : '')
             }
-            fullWidth
-            slotProps={{ inputLabel: { shrink: true } }}
+            fullWidth slotProps={{ inputLabel: { shrink: true } }}
           />
+          {availableDeliverables.length > 0 && (
+            <FormControl fullWidth>
+              <InputLabel>Depends on (optional)</InputLabel>
+              <Select
+                name="depends_on" value={form.depends_on} label="Depends on (optional)"
+                onChange={handleChange} MenuProps={{ disablePortal: true }}
+              >
+                <MenuItem value="">No dependency</MenuItem>
+                {availableDeliverables.map((d) => (
+                  <MenuItem key={d.id} value={d.id}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <StatusBadge status={d.status} />
+                      <Typography variant="body2">{d.title}</Typography>
+                    </Box>
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
         </Box>
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>
         <Button onClick={onClose} disabled={loading}>Cancel</Button>
-        <Button variant="contained" onClick={handleSave}
-          disabled={loading || !isFormValid}>
+        <Button variant="contained" onClick={handleSave} disabled={loading || !isFormValid}>
           {loading ? <CircularProgress size={20} /> : initial ? 'Save changes' : 'Add deliverable'}
         </Button>
       </DialogActions>
@@ -160,13 +241,10 @@ function BudgetDisplay({ planned, consumed, budgetPct, budgetColor, isOverBudget
         <Box sx={{
           position: 'absolute', left: 0, top: 0, bottom: 0,
           width: `${Math.min(budgetPct, 100)}%`,
-          bgcolor: `${budgetColor}.main`,
-          borderRadius: 1,
+          bgcolor: `${budgetColor}.main`, borderRadius: 1,
           transition: 'width 0.3s ease',
         }} />
-        {isOverBudget && (
-          <Box sx={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '4px', bgcolor: 'error.dark' }} />
-        )}
+        {isOverBudget && <Box sx={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '4px', bgcolor: 'error.dark' }} />}
       </Box>
       <Typography variant="caption" color="text.secondary">
         ${consumed.toLocaleString()} consumed of ${planned.toLocaleString()} planned
@@ -208,6 +286,15 @@ function ProjectDetailContent() {
   }, [id]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  const handleFieldSave = async (field, value) => {
+    try {
+      const res = await updateProject(id, { [field]: value });
+      setProject(res.data.project);
+    } catch (err) {
+      setError(err.response?.data?.error || `Failed to update ${field}`);
+    }
+  };
 
   const handleStatusChange = async (newStatus) => {
     try {
@@ -266,11 +353,9 @@ function ProjectDetailContent() {
 
   return (
     <Box>
-      {/* Back button — goes to previous page */}
+      {/* Breadcrumb */}
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 1 }}>
-        <IconButton onClick={() => navigate(-1)} size="small">
-          <ArrowBackIcon />
-        </IconButton>
+        <IconButton onClick={() => navigate(-1)} size="small"><ArrowBackIcon /></IconButton>
         <Typography
           variant="body2" color="text.secondary"
           sx={{ cursor: 'pointer', '&:hover': { color: 'primary.main' } }}
@@ -282,53 +367,86 @@ function ProjectDetailContent() {
         <Typography variant="body2" fontWeight={600}>{project.name}</Typography>
       </Box>
 
-      {/* Project header */}
+      {/* Project header — all fields inline editable */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
-            <Box sx={{ flexGrow: 1 }}>
+          <Box sx={{ mb: 2 }}>
+            {/* Name — inline editable */}
+            <RoleGuard minRole="manager" fallback={
               <Typography variant="h5" fontWeight={700} gutterBottom>{project.name}</Typography>
-              {project.description && (
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  {project.description}
-                </Typography>
-              )}
-              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-                {editingStatus ? (
-                  <FormControl size="small" sx={{ minWidth: 140 }}>
-                    <Select
-                      value={project.status}
-                      onChange={(e) => handleStatusChange(e.target.value)}
-                      autoFocus
-                      onBlur={() => setEditingStatus(false)}
-                    >
-                      {PROJECT_STATUSES.map((s) => (
-                        <MenuItem key={s} value={s} sx={{ textTransform: 'capitalize' }}>
-                          {s.replace('_', ' ')}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                ) : (
-                  <RoleGuard minRole="manager" fallback={<StatusBadge status={project.status} />}>
-                    <Tooltip title="Click to change status">
-                      <Box sx={{ cursor: 'pointer' }} onClick={() => setEditingStatus(true)}>
-                        <StatusBadge status={project.status} />
-                      </Box>
-                    </Tooltip>
-                  </RoleGuard>
-                )}
-                {project.start_date && (
-                  <Chip label={`Start: ${project.start_date}`} size="small" variant="outlined" />
-                )}
-                {project.end_date && (
-                  <Chip label={`Due: ${project.end_date}`} size="small" variant="outlined" />
-                )}
+            }>
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="caption" color="text.secondary">Project Name</Typography>
+                <InlineField
+                  label="project name"
+                  value={project.name}
+                  onSave={(v) => handleFieldSave('name', v)}
+                  minRole="manager"
+                />
               </Box>
+            </RoleGuard>
+
+            {/* Description */}
+            <Box sx={{ mb: 1 }}>
+              <Typography variant="caption" color="text.secondary">Description</Typography>
+              <InlineField
+                label="description"
+                value={project.description}
+                onSave={(v) => handleFieldSave('description', v)}
+                minRole="manager"
+              />
             </Box>
           </Box>
 
-          <Grid container spacing={3} sx={{ mt: 1 }}>
+          {/* Status + dates */}
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', mb: 2 }}>
+            {editingStatus ? (
+              <FormControl size="small" sx={{ minWidth: 140 }}>
+                <Select
+                  value={project.status}
+                  onChange={(e) => handleStatusChange(e.target.value)}
+                  autoFocus onBlur={() => setEditingStatus(false)}
+                  MenuProps={{ disablePortal: true }}
+                >
+                  {PROJECT_STATUSES.map((s) => (
+                    <MenuItem key={s} value={s} sx={{ textTransform: 'capitalize' }}>{s.replace('_', ' ')}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            ) : (
+              <RoleGuard minRole="manager" fallback={<StatusBadge status={project.status} />}>
+                <Tooltip title="Click to change status">
+                  <Box sx={{ cursor: 'pointer' }} onClick={() => setEditingStatus(true)}>
+                    <StatusBadge status={project.status} />
+                  </Box>
+                </Tooltip>
+              </RoleGuard>
+            )}
+
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <Typography variant="caption" color="text.secondary">Start:</Typography>
+              <InlineField label="start date" value={project.start_date} onSave={(v) => handleFieldSave('start_date', v)} type="date" minRole="manager" />
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <Typography variant="caption" color="text.secondary">Due:</Typography>
+              <InlineField label="end date" value={project.end_date} onSave={(v) => handleFieldSave('end_date', v)} type="date" minRole="manager" />
+            </Box>
+          </Box>
+
+          {/* Budget inline editable */}
+          <Grid container spacing={2} sx={{ mb: 1 }}>
+            <Grid item xs={12} sm={6} md={3}>
+              <Typography variant="caption" color="text.secondary">Budget Planned ($)</Typography>
+              <InlineField label="budget planned" value={project.budget_planned} onSave={(v) => handleFieldSave('budget_planned', v)} type="number" minRole="manager" />
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Typography variant="caption" color="text.secondary">Budget Consumed ($)</Typography>
+              <InlineField label="budget consumed" value={project.budget_consumed} onSave={(v) => handleFieldSave('budget_consumed', v)} type="number" minRole="manager" />
+            </Grid>
+          </Grid>
+
+          {/* Budget + Progress bars */}
+          <Grid container spacing={3} sx={{ mt: 0.5 }}>
             {planned > 0 && (
               <Grid item xs={12} md={6}>
                 <BudgetDisplay
@@ -342,14 +460,9 @@ function ProjectDetailContent() {
               <Grid item xs={12} md={6}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                   <Typography variant="body2" color="text.secondary">Deliverables progress</Typography>
-                  <Typography variant="body2" fontWeight={700} color="success.main">
-                    {progressPct.toFixed(0)}%
-                  </Typography>
+                  <Typography variant="body2" fontWeight={700} color="success.main">{progressPct.toFixed(0)}%</Typography>
                 </Box>
-                <LinearProgress
-                  variant="determinate" value={progressPct} color="success"
-                  sx={{ height: 8, borderRadius: 1, mb: 0.5 }}
-                />
+                <LinearProgress variant="determinate" value={progressPct} color="success" sx={{ height: 8, borderRadius: 1, mb: 0.5 }} />
                 <Typography variant="caption" color="text.secondary">
                   {completedDeliverables} of {deliverables.length} completed
                 </Typography>
@@ -378,11 +491,9 @@ function ProjectDetailContent() {
           </RoleGuard>
         </Box>
         {deliverables.length === 0 ? (
-          <Card>
-            <CardContent sx={{ textAlign: 'center', py: 4 }}>
-              <Typography color="text.secondary">No deliverables yet. Add your first deliverable above.</Typography>
-            </CardContent>
-          </Card>
+          <Card><CardContent sx={{ textAlign: 'center', py: 4 }}>
+            <Typography color="text.secondary">No deliverables yet. Add your first deliverable above.</Typography>
+          </CardContent></Card>
         ) : (
           <TableContainer component={Paper}>
             <Table>
@@ -400,9 +511,7 @@ function ProjectDetailContent() {
                   <TableRow key={d.id} hover>
                     <TableCell>
                       <Typography variant="body2" fontWeight={500}>{d.title}</Typography>
-                      {d.description && (
-                        <Typography variant="caption" color="text.secondary">{d.description}</Typography>
-                      )}
+                      {d.description && <Typography variant="caption" color="text.secondary">{d.description}</Typography>}
                     </TableCell>
                     <TableCell>
                       <RoleGuard minRole="contributor" fallback={<StatusBadge status={d.status} />}>
@@ -410,6 +519,7 @@ function ProjectDetailContent() {
                           value={d.status} size="small" variant="standard"
                           onChange={(e) => handleQuickStatusChange(d.id, e.target.value)}
                           sx={{ '&:before': { display: 'none' } }}
+                          MenuProps={{ disablePortal: true }}
                         >
                           {DELIVERABLE_STATUSES.map((s) => (
                             <MenuItem key={s} value={s}><StatusBadge status={s} /></MenuItem>
@@ -417,11 +527,13 @@ function ProjectDetailContent() {
                         </Select>
                       </RoleGuard>
                     </TableCell>
+                    <TableCell><Typography variant="body2">{d.due_date || 'N/A'}</Typography></TableCell>
                     <TableCell>
-                      <Typography variant="body2">{d.due_date || 'N/A'}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2">{d.depends_on_title || 'N/A'}</Typography>
+                      {d.depends_on_title ? (
+                        <Chip label={d.depends_on_title} size="small" variant="outlined" />
+                      ) : (
+                        <Typography variant="body2" color="text.disabled">None</Typography>
+                      )}
                     </TableCell>
                     <TableCell align="right">
                       <RoleGuard minRole="contributor">
@@ -450,14 +562,12 @@ function ProjectDetailContent() {
       {/* Allocations Tab */}
       <TabPanel value={tab} index={1}>
         {allocations.length === 0 ? (
-          <Card>
-            <CardContent sx={{ textAlign: 'center', py: 4 }}>
-              <Typography color="text.secondary">No resources allocated to this project yet.</Typography>
-              <Button variant="outlined" sx={{ mt: 2 }} onClick={() => navigate('/allocations')}>
-                Manage Allocations
-              </Button>
-            </CardContent>
-          </Card>
+          <Card><CardContent sx={{ textAlign: 'center', py: 4 }}>
+            <Typography color="text.secondary">No resources allocated to this project yet.</Typography>
+            <Button variant="outlined" sx={{ mt: 2 }} onClick={() => navigate('/allocations')}>
+              Manage Allocations
+            </Button>
+          </CardContent></Card>
         ) : (
           <TableContainer component={Paper}>
             <Table>
@@ -473,15 +583,9 @@ function ProjectDetailContent() {
               <TableBody>
                 {allocations.map((a) => (
                   <TableRow key={a.id} hover>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={500}>{a.resource_name}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2">{a.role_title || 'N/A'}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2">{a.department || 'N/A'}</Typography>
-                    </TableCell>
+                    <TableCell><Typography variant="body2" fontWeight={500}>{a.resource_name}</Typography></TableCell>
+                    <TableCell><Typography variant="body2">{a.role_title || 'N/A'}</Typography></TableCell>
+                    <TableCell><Typography variant="body2">{a.department || 'N/A'}</Typography></TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <LinearProgress
@@ -512,14 +616,13 @@ function ProjectDetailContent() {
         initial={deliverableForm.initial}
         projectId={parseInt(id)}
         project={project}
+        deliverables={deliverables}
       />
 
       <Dialog open={Boolean(deleteDeliverableConfirm)} onClose={() => setDeleteDeliverableConfirm(null)}>
         <DialogTitle fontWeight={600}>Delete Deliverable</DialogTitle>
         <DialogContent>
-          <Typography>
-            Delete <strong>{deleteDeliverableConfirm?.title}</strong>? This cannot be undone.
-          </Typography>
+          <Typography>Delete <strong>{deleteDeliverableConfirm?.title}</strong>? This cannot be undone.</Typography>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setDeleteDeliverableConfirm(null)} disabled={deleteLoading}>Cancel</Button>

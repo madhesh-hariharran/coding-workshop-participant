@@ -34,8 +34,11 @@ function Layout({ darkMode, setDarkMode }) {
           p: 3,
           mt: 8,
           width: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
+          maxWidth: { md: `calc(100% - ${DRAWER_WIDTH}px)` },
           minHeight: '100vh',
           bgcolor: 'background.default',
+          minWidth: 0,
+          boxSizing: 'border-box',
         }}
       >
         <Outlet />
