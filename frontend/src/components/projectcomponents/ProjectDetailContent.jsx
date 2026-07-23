@@ -135,7 +135,7 @@ function DeliverableForm({ open, onClose, onSave, initial, projectId, project })
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>
         <Button onClick={onClose} disabled={loading}>Cancel</Button>
-        <Button variant="contained" onClick={handleSave} disabled={loading || !form.title.trim()}>
+        <Button variant="contained" onClick={handleSave} disabled={loading || !form.title.trim() || Object.values(errors).some(Boolean)}>
           {loading ? <CircularProgress size={20} /> : initial ? 'Save changes' : 'Add deliverable'}
         </Button>
       </DialogActions>

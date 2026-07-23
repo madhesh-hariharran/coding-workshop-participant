@@ -1,4 +1,7 @@
+import DeliverablesContent from '../components/deliverablecomponents/DeliverablesContent';
+
 function Deliverables() {
-  return <div>Deliverables Page</div>;
+  return <DeliverablesContent />;
 }
+
 export default Deliverables;
