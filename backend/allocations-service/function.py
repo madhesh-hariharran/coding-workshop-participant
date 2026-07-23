@@ -85,7 +85,7 @@ def list_allocations(event: dict, context, current_user: dict = None) -> dict:
             cur.execute(query, args)
             allocations = [dict(r) for r in cur.fetchall()]
 
-            # Get over-allocated resources
+            # Get over-allocated resources (warning only, not a hard block)
             cur.execute("""
                 SELECT r.id, r.name,
                        SUM(a.allocation_percentage) as total_allocation
@@ -158,9 +158,14 @@ def create_allocation(event: dict, context, current_user: dict = None) -> dict:
                 return response(404, {"error": "Resource not found"})
 
             # Verify project exists
-            cur.execute("SELECT id FROM projects WHERE id = %s", (project_id,))
-            if not cur.fetchone():
+            cur.execute("SELECT id, status FROM projects WHERE id = %s", (project_id,))
+            project = cur.fetchone()
+            if not project:
                 return response(404, {"error": "Project not found"})
+
+            # Block allocation to completed projects
+            if project["status"] == "completed":
+                return response(400, {"error": "Cannot allocate resources to a completed project"})
 
             # Check for duplicate allocation
             cur.execute("""
@@ -170,16 +175,14 @@ def create_allocation(event: dict, context, current_user: dict = None) -> dict:
             if cur.fetchone():
                 return response(400, {"error": "Resource is already allocated to this project"})
 
-            # Check total allocation won't exceed 100%
+            # Check total allocation — warn in response but allow over 100%
             cur.execute("""
                 SELECT COALESCE(SUM(allocation_percentage), 0) as total
                 FROM allocations WHERE resource_id = %s
             """, (resource_id,))
-            current_total = cur.fetchone()["total"]
-            if current_total + allocation_percentage > 100:
-                return response(400, {
-                    "error": f"Over-allocation: resource is already at {current_total}%. Adding {allocation_percentage}% would exceed 100%"
-                })
+            current_total = int(cur.fetchone()["total"])
+            new_total = current_total + allocation_percentage
+            is_over_allocated = new_total > 100
 
             cur.execute("""
                 INSERT INTO allocations
@@ -189,7 +192,12 @@ def create_allocation(event: dict, context, current_user: dict = None) -> dict:
             """, (resource_id, project_id, allocation_percentage, start_date, end_date))
             allocation = dict(cur.fetchone())
         conn.commit()
-        return response(201, {"allocation": allocation})
+
+        result = {"allocation": allocation}
+        if is_over_allocated:
+            result["warning"] = f"Resource is now over-allocated at {new_total}% total across all projects"
+
+        return response(201, result)
     except Exception as e:
         logger.error("Create allocation error: %s", str(e))
         conn.rollback()
@@ -232,7 +240,22 @@ def update_allocation(event: dict, context, allocation_id: int = None, current_u
         if not allocation:
             return response(404, {"error": "Allocation not found"})
         conn.commit()
-        return response(200, {"allocation": dict(allocation)})
+
+        allocation = dict(allocation)
+
+        # Check if update causes over-allocation
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COALESCE(SUM(allocation_percentage), 0) as total
+                FROM allocations WHERE resource_id = %s
+            """, (allocation["resource_id"],))
+            total = int(cur.fetchone()["total"])
+
+        result = {"allocation": allocation}
+        if total > 100:
+            result["warning"] = f"Resource is over-allocated at {total}% total across all projects"
+
+        return response(200, result)
     except Exception as e:
         logger.error("Update allocation error: %s", str(e))
         conn.rollback()

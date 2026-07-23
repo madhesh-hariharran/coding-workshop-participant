@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import sys
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -26,9 +27,18 @@ init_schema()
 def validate_project(body: dict, partial: bool = False) -> str | None:
     if not partial and not (body.get("name") or "").strip():
         return "name is required"
+    if not partial and len((body.get("name") or "").strip()) > 255:
+        return "name must be under 255 characters"
+
     status = body.get("status")
     if status and status not in ("active", "at_risk", "on_hold", "completed"):
         return "status must be active, at_risk, on_hold or completed"
+
+    start_date = body.get("start_date")
+    end_date = body.get("end_date")
+    if start_date and end_date and end_date < start_date:
+        return "end_date must be after start_date"
+
     budget_planned = body.get("budget_planned")
     if budget_planned is not None:
         try:
@@ -36,6 +46,7 @@ def validate_project(body: dict, partial: bool = False) -> str | None:
                 return "budget_planned must be non-negative"
         except (ValueError, TypeError):
             return "budget_planned must be a number"
+
     budget_consumed = body.get("budget_consumed")
     if budget_consumed is not None:
         try:
@@ -43,6 +54,7 @@ def validate_project(body: dict, partial: bool = False) -> str | None:
                 return "budget_consumed must be non-negative"
         except (ValueError, TypeError):
             return "budget_consumed must be a number"
+
     return None
 
 
@@ -200,10 +212,6 @@ def delete_project(event: dict, context, project_id: int = None, current_user: d
 
 
 def get_project_id_from_path(path: str) -> int | None:
-    """
-    Extract project ID from path.
-    Handles both /projects-service/1 and /1 (proxy strips service name).
-    """
     parts = [p for p in path.split("/") if p]
     for part in reversed(parts):
         try:
@@ -228,7 +236,7 @@ def handler(event=None, context=None):
         return get_project(event, context, project_id=project_id)
     if http_method == "POST":
         return create_project(event, context)
-    if http_method == "PUT" and project_id:
+    if http_method in ("PUT", "PATCH") and project_id:
         return update_project(event, context, project_id=project_id)
     if http_method == "DELETE" and project_id:
         return delete_project(event, context, project_id=project_id)

@@ -1,11 +1,12 @@
 """
 Resources Service: CRUD operations for team members/resources.
 Endpoints:
-    POST   /resources-service          - Create resource (manager+)
-    GET    /resources-service          - List all resources (viewer+)
-    GET    /resources-service/{id}     - Get resource by ID (viewer+)
-    PUT    /resources-service/{id}     - Update resource (manager+)
-    DELETE /resources-service/{id}     - Delete resource (admin only)
+    POST   /resources-service                - Create resource (manager+)
+    GET    /resources-service                - List all resources (viewer+)
+    GET    /resources-service/{id}           - Get resource by ID (viewer+)
+    GET    /resources-service/eligible-users - Get users eligible to link (manager+)
+    PUT    /resources-service/{id}           - Update resource (manager+)
+    DELETE /resources-service/{id}           - Delete resource (admin only)
 """
 import json
 import logging
@@ -26,6 +27,8 @@ init_schema()
 def validate_resource(body: dict, partial: bool = False) -> str | None:
     if not partial and not (body.get("name") or "").strip():
         return "name is required"
+    if (body.get("name") or "").strip() and len((body.get("name") or "").strip()) > 255:
+        return "name must be under 255 characters"
     return None
 
 
@@ -37,6 +40,34 @@ def get_id_from_path(path: str) -> int | None:
         except ValueError:
             continue
     return None
+
+
+@require_auth(min_role="manager")
+def get_eligible_users(event: dict, context, current_user: dict = None) -> dict:
+    """
+    Returns users from the same email domain as the requester
+    who are not already linked to a resource.
+    """
+    try:
+        requester_email = current_user.get("email", "")
+        domain = requester_email.split("@")[1] if "@" in requester_email else ""
+
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, name, email, role
+                FROM users
+                WHERE email LIKE %s
+                AND id NOT IN (
+                    SELECT user_id FROM resources WHERE user_id IS NOT NULL
+                )
+                ORDER BY name ASC
+            """, (f"%@{domain}",))
+            users = [dict(r) for r in cur.fetchall()]
+        return response(200, {"users": users})
+    except Exception as e:
+        logger.error("Get eligible users error: %s", str(e))
+        return response(500, {"error": "Failed to fetch eligible users", "message": str(e)})
 
 
 @require_auth(min_role="viewer")
@@ -51,6 +82,7 @@ def list_resources(event: dict, context, current_user: dict = None) -> dict:
             query = """
                 SELECT r.*,
                        u.email as user_email,
+                       u.role as user_role,
                        COALESCE(SUM(a.allocation_percentage), 0) as total_allocation
                 FROM resources r
                 LEFT JOIN users u ON r.user_id = u.id
@@ -64,7 +96,7 @@ def list_resources(event: dict, context, current_user: dict = None) -> dict:
             if department:
                 query += " AND r.department = %s"
                 args.append(department)
-            query += " GROUP BY r.id, u.email ORDER BY r.created_at DESC"
+            query += " GROUP BY r.id, u.email, u.role ORDER BY r.created_at DESC"
             cur.execute(query, args)
             resources = [dict(r) for r in cur.fetchall()]
         return response(200, {"resources": resources, "total": len(resources)})
@@ -81,12 +113,13 @@ def get_resource(event: dict, context, resource_id: int = None, current_user: di
             cur.execute("""
                 SELECT r.*,
                        u.email as user_email,
+                       u.role as user_role,
                        COALESCE(SUM(a.allocation_percentage), 0) as total_allocation
                 FROM resources r
                 LEFT JOIN users u ON r.user_id = u.id
                 LEFT JOIN allocations a ON r.id = a.resource_id
                 WHERE r.id = %s
-                GROUP BY r.id, u.email
+                GROUP BY r.id, u.email, u.role
             """, (resource_id,))
             resource = cur.fetchone()
         if not resource:
@@ -120,6 +153,10 @@ def create_resource(event: dict, context, current_user: dict = None) -> dict:
                 cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
                 if not cur.fetchone():
                     return response(404, {"error": "User not found"})
+                # Check user not already linked
+                cur.execute("SELECT id FROM resources WHERE user_id = %s", (user_id,))
+                if cur.fetchone():
+                    return response(400, {"error": "This user is already linked to another resource"})
 
             cur.execute("""
                 INSERT INTO resources (name, role_title, department, user_id)
@@ -163,6 +200,15 @@ def update_resource(event: dict, context, resource_id: int = None, current_user:
     try:
         conn = get_connection()
         with conn.cursor() as cur:
+            # If user_id being updated, verify not already linked to another resource
+            if "user_id" in body and body["user_id"]:
+                cur.execute(
+                    "SELECT id FROM resources WHERE user_id = %s AND id != %s",
+                    (body["user_id"], resource_id)
+                )
+                if cur.fetchone():
+                    return response(400, {"error": "This user is already linked to another resource"})
+
             cur.execute(f"""
                 UPDATE resources SET {', '.join(fields)}
                 WHERE id = %s RETURNING *
@@ -201,6 +247,10 @@ def handler(event=None, context=None):
     http_method = (event.get("requestContext") or {}).get("http", {}).get("method", "").upper()
     raw_path = event.get("rawPath") or event.get("path") or ""
     path = raw_path.rstrip("/")
+
+    # Special route for eligible users
+    if http_method == "GET" and path.endswith("/eligible-users"):
+        return get_eligible_users(event, context)
 
     resource_id = get_id_from_path(path)
 
