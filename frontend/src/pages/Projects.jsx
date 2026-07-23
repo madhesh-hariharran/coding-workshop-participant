@@ -1,4 +1,7 @@
+import ProjectsContent from '../components/projectcomponents/ProjectsContent';
+
 function Projects() {
-  return <div>Projects Page</div>;
+  return <ProjectsContent />;
 }
+
 export default Projects;
