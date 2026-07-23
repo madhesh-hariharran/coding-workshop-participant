@@ -91,6 +91,8 @@ function DeliverableForm({ open, onClose, onSave, initial, projectId, project })
     }
   };
 
+  const isFormValid = form.title.trim() && !Object.values(errors).some(Boolean);
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle fontWeight={600}>{initial ? 'Edit Deliverable' : 'New Deliverable'}</DialogTitle>
@@ -135,7 +137,8 @@ function DeliverableForm({ open, onClose, onSave, initial, projectId, project })
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>
         <Button onClick={onClose} disabled={loading}>Cancel</Button>
-        <Button variant="contained" onClick={handleSave} disabled={loading || !form.title.trim() || Object.values(errors).some(Boolean)}>
+        <Button variant="contained" onClick={handleSave}
+          disabled={loading || !isFormValid}>
           {loading ? <CircularProgress size={20} /> : initial ? 'Save changes' : 'Add deliverable'}
         </Button>
       </DialogActions>
@@ -154,22 +157,15 @@ function BudgetDisplay({ planned, consumed, budgetPct, budgetColor, isOverBudget
         </Typography>
       </Box>
       <Box sx={{ position: 'relative', height: 8, bgcolor: 'action.hover', borderRadius: 1, overflow: 'hidden' }}>
-        <Box
-          sx={{
-            position: 'absolute', left: 0, top: 0, bottom: 0,
-            width: `${Math.min(budgetPct, 100)}%`,
-            bgcolor: `${budgetColor}.main`,
-            borderRadius: 1,
-            transition: 'width 0.3s ease',
-          }}
-        />
+        <Box sx={{
+          position: 'absolute', left: 0, top: 0, bottom: 0,
+          width: `${Math.min(budgetPct, 100)}%`,
+          bgcolor: `${budgetColor}.main`,
+          borderRadius: 1,
+          transition: 'width 0.3s ease',
+        }} />
         {isOverBudget && (
-          <Box
-            sx={{
-              position: 'absolute', right: 0, top: 0, bottom: 0,
-              width: '4px', bgcolor: 'error.dark',
-            }}
-          />
+          <Box sx={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: '4px', bgcolor: 'error.dark' }} />
         )}
       </Box>
       <Typography variant="caption" color="text.secondary">
@@ -270,17 +266,17 @@ function ProjectDetailContent() {
 
   return (
     <Box>
-      {/* Breadcrumb */}
+      {/* Back button — goes to previous page */}
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 1 }}>
-        <IconButton onClick={() => navigate('/projects')} size="small">
+        <IconButton onClick={() => navigate(-1)} size="small">
           <ArrowBackIcon />
         </IconButton>
         <Typography
           variant="body2" color="text.secondary"
           sx={{ cursor: 'pointer', '&:hover': { color: 'primary.main' } }}
-          onClick={() => navigate('/projects')}
+          onClick={() => navigate(-1)}
         >
-          Projects
+          Back
         </Typography>
         <Typography variant="body2" color="text.secondary">›</Typography>
         <Typography variant="body2" fontWeight={600}>{project.name}</Typography>
@@ -375,10 +371,8 @@ function ProjectDetailContent() {
       <TabPanel value={tab} index={0}>
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
           <RoleGuard minRole="contributor">
-            <Button
-              variant="contained" startIcon={<AddIcon />}
-              onClick={() => setDeliverableForm({ open: true, initial: null })}
-            >
+            <Button variant="contained" startIcon={<AddIcon />}
+              onClick={() => setDeliverableForm({ open: true, initial: null })}>
               Add Deliverable
             </Button>
           </RoleGuard>
@@ -424,10 +418,10 @@ function ProjectDetailContent() {
                       </RoleGuard>
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2">{d.due_date || '—'}</Typography>
+                      <Typography variant="body2">{d.due_date || 'N/A'}</Typography>
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2">{d.depends_on_title || '—'}</Typography>
+                      <Typography variant="body2">{d.depends_on_title || 'N/A'}</Typography>
                     </TableCell>
                     <TableCell align="right">
                       <RoleGuard minRole="contributor">
@@ -483,16 +477,16 @@ function ProjectDetailContent() {
                       <Typography variant="body2" fontWeight={500}>{a.resource_name}</Typography>
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2">{a.role_title || '—'}</Typography>
+                      <Typography variant="body2">{a.role_title || 'N/A'}</Typography>
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2">{a.department || '—'}</Typography>
+                      <Typography variant="body2">{a.department || 'N/A'}</Typography>
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <LinearProgress
                           variant="determinate" value={a.allocation_percentage}
-                          sx={{ width: 60, height: 6, borderRadius: 1 }}
+                          sx={{ width: 60, height: 6, borderRadius: 1, bgcolor: 'action.hover' }}
                           color={a.allocation_percentage > 80 ? 'warning' : 'primary'}
                         />
                         <Typography variant="body2">{a.allocation_percentage}%</Typography>
@@ -500,7 +494,7 @@ function ProjectDetailContent() {
                     </TableCell>
                     <TableCell>
                       <Typography variant="caption" color="text.secondary">
-                        {a.start_date || '—'} → {a.end_date || '—'}
+                        {a.start_date || 'N/A'} → {a.end_date || 'N/A'}
                       </Typography>
                     </TableCell>
                   </TableRow>

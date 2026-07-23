@@ -1,4 +1,7 @@
+import ResourcesContent from '../components/resourcecomponents/ResourcesContent';
+
 function Resources() {
-  return <div>Resources Page</div>;
+  return <ResourcesContent />;
 }
+
 export default Resources;
