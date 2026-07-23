@@ -247,7 +247,7 @@ function DashboardContent() {
                   flex: 1, textAlign: 'center', p: 1.5, bgcolor: 'background.default',
                   borderRadius: 2, cursor: 'pointer', border: '1px solid', borderColor: 'divider',
                   '&:hover': { bgcolor: 'action.hover' }
-                }} onClick={() => navigate('/deliverables')}>
+                }} onClick={() => navigate(`/deliverables?status=${item.label === 'Pending' ? 'pending' : item.label === 'Completed' ? 'completed' : 'in_progress'}`)}>
                   <Typography variant="h4" fontWeight={700} color={item.color}>{item.count}</Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>{item.label}</Typography>
                 </Box>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Box, Card, CardContent, Typography, CircularProgress, Alert,
   Button, TextField, Select, MenuItem, FormControl, InputLabel,
@@ -212,6 +212,7 @@ function DeliverableForm({ open, onClose, onSave, initial, projects }) {
 
 function DeliverablesContent() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [deliverables, setDeliverables] = useState([]);
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -223,6 +224,12 @@ function DeliverablesContent() {
   const [editDeliverable, setEditDeliverable] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const status = params.get('status');
+    if (status) setStatusFilter(status);
+  }, [location]);
 
   const fetchData = useCallback(async () => {
     try {
