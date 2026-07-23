@@ -98,6 +98,8 @@ def list_allocations(event: dict, context, current_user: dict = None) -> dict:
                        SUM(a.allocation_percentage) as total_allocation
                 FROM resources r
                 JOIN allocations a ON r.id = a.resource_id
+                JOIN projects p ON a.project_id = p.id
+                WHERE p.status != 'completed'
                 GROUP BY r.id, r.name
                 HAVING SUM(a.allocation_percentage) > 100
             """)
@@ -188,8 +190,10 @@ def create_allocation(event: dict, context, current_user: dict = None) -> dict:
 
             # Check total allocation — warn but allow over 100%
             cur.execute("""
-                SELECT COALESCE(SUM(allocation_percentage), 0) as total
-                FROM allocations WHERE resource_id = %s
+                SELECT COALESCE(SUM(a.allocation_percentage), 0) as total
+                FROM allocations a
+                JOIN projects p ON a.project_id = p.id
+                WHERE a.resource_id = %s AND p.status != 'completed'
             """, (resource_id,))
             current_total = int(cur.fetchone()["total"])
             new_total = current_total + allocation_percentage
@@ -257,8 +261,10 @@ def update_allocation(event: dict, context, allocation_id: int = None, current_u
         # Check if update causes over-allocation
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT COALESCE(SUM(allocation_percentage), 0) as total
-                FROM allocations WHERE resource_id = %s
+                SELECT COALESCE(SUM(a.allocation_percentage), 0) as total
+                FROM allocations a
+                JOIN projects p ON a.project_id = p.id
+                WHERE a.resource_id = %s AND p.status != 'completed'
             """, (allocation["resource_id"],))
             total = int(cur.fetchone()["total"])
 

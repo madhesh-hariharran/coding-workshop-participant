@@ -87,7 +87,9 @@ def list_resources(event: dict, context, current_user: dict = None) -> dict:
                 FROM resources r
                 LEFT JOIN users u ON r.user_id = u.id
                 LEFT JOIN allocations a ON r.id = a.resource_id
-                WHERE 1=1
+                LEFT JOIN projects p ON a.project_id = p.id
+                WHERE (p.status != 'completed' OR p.id IS NULL)
+                AND 1=1
             """
             args = []
             if search:
@@ -118,7 +120,9 @@ def get_resource(event: dict, context, resource_id: int = None, current_user: di
                 FROM resources r
                 LEFT JOIN users u ON r.user_id = u.id
                 LEFT JOIN allocations a ON r.id = a.resource_id
+                LEFT JOIN projects p ON a.project_id = p.id
                 WHERE r.id = %s
+                AND (p.status != 'completed' OR p.id IS NULL)
                 GROUP BY r.id, u.email, u.role
             """, (resource_id,))
             resource = cur.fetchone()
