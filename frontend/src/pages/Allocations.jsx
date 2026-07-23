@@ -1,4 +1,7 @@
+import AllocationsContent from '../components/allocationcomponents/AllocationsContent';
+
 function Allocations() {
-  return <div>Allocations Page</div>;
+  return <AllocationsContent />;
 }
+
 export default Allocations;

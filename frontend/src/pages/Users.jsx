@@ -1,4 +1,7 @@
+import UsersContent from '../components/usercomponents/UsersContent';
+
 function Users() {
-  return <div>Users Page</div>;
+  return <UsersContent />;
 }
+
 export default Users;
