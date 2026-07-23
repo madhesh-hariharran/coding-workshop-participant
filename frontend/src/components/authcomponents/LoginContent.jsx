@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import {
   Box, Card, CardContent, TextField, Button,
-  Typography, Alert, CircularProgress, InputAdornment,
-  IconButton, Divider
+  Typography, Alert, CircularProgress, Divider,
+  IconButton, InputAdornment
 } from '@mui/material';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { login as loginApi } from '../../api/authApi';
 import useAuth from '../../context/useAuth';
 
@@ -41,7 +41,6 @@ function LoginContent() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validate()) return;
-
     setLoading(true);
     try {
       const res = await loginApi(form.email, form.password);
@@ -69,7 +68,6 @@ function LoginContent() {
     >
       <Card sx={{ width: '100%', maxWidth: 420 }}>
         <CardContent sx={{ p: 4 }}>
-          {/* Header */}
           <Box sx={{ textAlign: 'center', mb: 3 }}>
             <Box
               sx={{
@@ -81,9 +79,7 @@ function LoginContent() {
             >
               <LockOutlinedIcon sx={{ color: 'white' }} />
             </Box>
-            <Typography variant="h5" fontWeight={700}>
-              Welcome back
-            </Typography>
+            <Typography variant="h5" fontWeight={700}>Welcome back</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
               Sign in to ACME Project Management
             </Typography>
@@ -91,28 +87,14 @@ function LoginContent() {
 
           <Divider sx={{ mb: 3 }} />
 
-          {/* API error */}
-          {apiError && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {apiError}
-            </Alert>
-          )}
+          {apiError && <Alert severity="error" sx={{ mb: 2 }}>{apiError}</Alert>}
 
-          {/* Form */}
           <Box component="form" onSubmit={handleSubmit} noValidate>
             <TextField
-              fullWidth
-              label="Email address"
-              name="email"
-              type="email"
-              value={form.email}
-              onChange={handleChange}
-              error={Boolean(errors.email)}
-              helperText={errors.email}
-              disabled={loading}
-              sx={{ mb: 2 }}
-              autoComplete="email"
-              autoFocus
+              fullWidth label="Email address" name="email" type="email"
+              value={form.email} onChange={handleChange}
+              error={Boolean(errors.email)} helperText={errors.email}
+              disabled={loading} sx={{ mb: 2 }} autoComplete="email" autoFocus
             />
             <TextField
               fullWidth
@@ -126,29 +108,39 @@ function LoginContent() {
               disabled={loading}
               sx={{ mb: 3 }}
               autoComplete="current-password"
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      onClick={() => setShowPassword((prev) => !prev)}
-                      edge="end"
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
-                    >
-                      {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
+              slotProps={{
+                input: {
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        onMouseDown={(e) => e.preventDefault()}
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        size="small"
+                        edge="end"
+                      >
+                        {showPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                },
               }}
             />
             <Button
-              type="submit"
-              fullWidth
-              variant="contained"
-              size="large"
-              disabled={loading}
+              type="submit" fullWidth variant="contained"
+              size="large" disabled={loading}
             >
               {loading ? <CircularProgress size={24} color="inherit" /> : 'Sign in'}
             </Button>
+
+            <Box sx={{ textAlign: 'center', mt: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                Don&apos;t have an account?{' '}
+                <Link to="/register" style={{ color: 'inherit', fontWeight: 600 }}>
+                  Register
+                </Link>
+              </Typography>
+            </Box>
           </Box>
         </CardContent>
       </Card>
