@@ -1,4 +1,7 @@
+import ProjectDetailContent from '../components/projectcomponents/ProjectDetailContent';
+
 function ProjectDetail() {
-  return <div>ProjectDetail Page</div>;
+  return <ProjectDetailContent />;
 }
+
 export default ProjectDetail;

@@ -1,19 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Box, Card, CardContent, CardActionArea, Typography, Grid,
+  Box, Card, CardContent, Typography, Grid,
   TextField, MenuItem, Select, FormControl, InputLabel,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Button, Alert, CircularProgress, IconButton, Tooltip,
+  Button, Alert, CircularProgress, Tooltip,
   InputAdornment, LinearProgress
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
 import SearchIcon from '@mui/icons-material/Search';
 import PageHeader from '../shared/PageHeader';
-import StatusBadge from '../shared/StatusBadge';
 import RoleGuard from '../shared/RoleGuard';
+import ProjectCard from './ProjectCard';
 import {
   getProjects, createProject, updateProject, deleteProject
 } from '../../api/projectsApi';
@@ -25,7 +23,6 @@ const EMPTY_FORM = {
 
 const STATUS_OPTIONS = ['active', 'at_risk', 'on_hold', 'completed'];
 
-// Real-time field-level validation
 function validateField(name, value, form) {
   switch (name) {
     case 'name':
@@ -49,7 +46,6 @@ function validateField(name, value, form) {
       if (value === '') return '';
       if (isNaN(Number(value))) return 'Budget consumed must be a valid number';
       if (Number(value) < 0) return 'Budget consumed must be a positive number';
-      
       return '';
     default:
       return '';
@@ -77,21 +73,11 @@ function ProjectForm({ open, onClose, onSave, initial }) {
     const updatedForm = { ...form, [name]: value };
     setForm(updatedForm);
     setTouched((p) => ({ ...p, [name]: true }));
-
-    // Validate changed field
-    const fieldError = validateField(name, value, updatedForm);
-    setErrors((p) => ({ ...p, [name]: fieldError }));
-
-    // Re-validate related fields
-    if (name === 'start_date') {
+    setErrors((p) => ({ ...p, [name]: validateField(name, value, updatedForm) }));
+    if (name === 'start_date')
       setErrors((p) => ({ ...p, end_date: validateField('end_date', updatedForm.end_date, updatedForm) }));
-    }
-    if (name === 'end_date') {
+    if (name === 'end_date')
       setErrors((p) => ({ ...p, start_date: validateField('start_date', updatedForm.start_date, updatedForm) }));
-    }
-    if (name === 'budget_planned') {
-      setErrors((p) => ({ ...p, budget_consumed: validateField('budget_consumed', updatedForm.budget_consumed, updatedForm) }));
-    }
   };
 
   const handleBlur = (e) => {
@@ -190,74 +176,11 @@ function ProjectForm({ open, onClose, onSave, initial }) {
       </DialogContent>
       <DialogActions sx={{ p: 2 }}>
         <Button onClick={onClose} disabled={loading}>Cancel</Button>
-        <Button
-          variant="contained" onClick={handleSave}
-          disabled={loading || !isFormValid}
-        >
+        <Button variant="contained" onClick={handleSave} disabled={loading || !isFormValid}>
           {loading ? <CircularProgress size={20} /> : initial ? 'Save changes' : 'Create project'}
         </Button>
       </DialogActions>
     </Dialog>
-  );
-}
-
-function ProjectCard({ project, onEdit, onDelete, onClick }) {
-  const planned = parseFloat(project.budget_planned) || 0;
-  const consumed = parseFloat(project.budget_consumed) || 0;
-  const pct = planned > 0 ? Math.min((consumed / planned) * 100, 100) : 0;
-  const budgetColor = pct >= 90 ? 'error' : pct >= 70 ? 'warning' : 'primary';
-
-  return (
-    <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <CardActionArea onClick={onClick} sx={{ flexGrow: 1 }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-            <Typography variant="h6" fontWeight={600} sx={{ flexGrow: 1, mr: 1 }}>
-              {project.name}
-            </Typography>
-            <StatusBadge status={project.status} />
-          </Box>
-          {project.description && (
-            <Typography variant="body2" color="text.secondary" sx={{
-              mb: 2, display: '-webkit-box',
-              WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden'
-            }}>
-              {project.description}
-            </Typography>
-          )}
-          {project.end_date && (
-            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
-              Due: {project.end_date}
-            </Typography>
-          )}
-          {planned > 0 && (
-            <Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                <Typography variant="caption" color="text.secondary">Budget</Typography>
-                <Typography variant="caption" color="text.secondary">{pct.toFixed(0)}%</Typography>
-              </Box>
-              <LinearProgress variant="determinate" value={pct} color={budgetColor} sx={{ borderRadius: 1, height: 4 }} />
-            </Box>
-          )}
-        </CardContent>
-      </CardActionArea>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', p: 1, pt: 0 }}>
-        <RoleGuard minRole="manager">
-          <Tooltip title="Edit project">
-            <IconButton size="small" onClick={(e) => { e.stopPropagation(); onEdit(project); }}>
-              <EditIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </RoleGuard>
-        <RoleGuard minRole="admin">
-          <Tooltip title="Delete project">
-            <IconButton size="small" color="error" onClick={(e) => { e.stopPropagation(); onDelete(project); }}>
-              <DeleteIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </RoleGuard>
-      </Box>
-    </Card>
   );
 }
 
@@ -377,7 +300,7 @@ function ProjectsContent() {
       ) : (
         <Grid container spacing={3}>
           {projects.map((p) => (
-            <Grid item xs={12} sm={6} md={4} key={p.id}>
+            <Grid item xs={12} sm={6} lg={4} key={p.id} sx={{ display: 'flex' }}>
               <ProjectCard
                 project={p}
                 onClick={() => navigate(`/projects/${p.id}`)}
