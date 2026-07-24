@@ -1,9 +1,10 @@
-PASS src/__tests__/validation.test.js
+PASS src/__tests__/api.test.js
 PASS src/__tests__/statusbadge.test.jsx
+PASS src/__tests__/validation.test.js
 PASS src/__tests__/dependencychain.test.js
 
-Test Suites: 3 passed, 3 total
-Tests:       51 passed, 51 total
+Test Suites: 4 passed, 4 total
+Tests:       77 passed, 77 total
 Snapshots:   0 total
-Time:        2.554 s
+Time:        1.996 s, estimated 3 s
 Ran all test suites.
