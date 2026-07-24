@@ -23,6 +23,15 @@ init_schema()
 
 
 def get_id_from_path(path: str) -> int | None:
+    """
+    Extract numeric user ID from URL path.
+
+    Args:
+        path: URL path string e.g. /users-service/1
+
+    Returns:
+        Integer ID if found, None otherwise.
+    """
     parts = [p for p in path.split("/") if p]
     for part in reversed(parts):
         try:
@@ -34,6 +43,17 @@ def get_id_from_path(path: str) -> int | None:
 
 @require_auth(min_role="admin")
 def list_users(event: dict, context, current_user: dict = None) -> dict:
+    """
+    List all registered users. Admin only.
+
+    Query params:
+        role (str): Filter by role (admin, manager, contributor, viewer).
+
+    Returns:
+        200: List of user objects (without passwords).
+        403: Insufficient role.
+        500: Database error.
+    """
     params = event.get("queryStringParameters") or {}
     search = params.get("search")
     role_filter = params.get("role")
@@ -64,6 +84,18 @@ def list_users(event: dict, context, current_user: dict = None) -> dict:
 
 @require_auth(min_role="admin")
 def get_user(event: dict, context, user_id: int = None, current_user: dict = None) -> dict:
+    """
+    Get a single user by ID. Admin only.
+
+    Args:
+        user_id: Integer user ID from URL path.
+
+    Returns:
+        200: User object without password.
+        403: Insufficient role.
+        404: User not found.
+        500: Database error.
+    """
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -82,6 +114,23 @@ def get_user(event: dict, context, user_id: int = None, current_user: dict = Non
 
 @require_auth(min_role="admin")
 def update_user(event: dict, context, user_id: int = None, current_user: dict = None) -> dict:
+    """
+    Update a user account. Admin only.
+
+    Args:
+        user_id: Integer user ID from URL path.
+
+    Request body:
+        name (str): Updated display name. Optional.
+        role (str): New role. Cannot change your own role. Optional.
+
+    Returns:
+        200: Updated user object.
+        400: Attempting to change own role or no fields provided.
+        403: Insufficient role.
+        404: User not found.
+        500: Database error.
+    """
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
@@ -134,6 +183,19 @@ def update_user(event: dict, context, user_id: int = None, current_user: dict = 
 
 @require_auth(min_role="admin")
 def delete_user(event: dict, context, user_id: int = None, current_user: dict = None) -> dict:
+    """
+    Delete a user account. Admin only. Cannot delete own account.
+
+    Args:
+        user_id: Integer user ID from URL path.
+
+    Returns:
+        204: User deleted successfully.
+        400: Attempting to delete own account.
+        403: Insufficient role.
+        404: User not found.
+        500: Database error.
+    """
     # Prevent self-deletion
     if str(user_id) == str(current_user["sub"]):
         return response(400, {"error": "Cannot delete your own account"})
@@ -154,6 +216,22 @@ def delete_user(event: dict, context, user_id: int = None, current_user: dict = 
 
 
 def handler(event=None, context=None):
+    """
+    Main Lambda entry point. Routes requests to the appropriate handler.
+
+    Supported routes:
+        GET    /users-service          - List users (admin only)
+        GET    /users-service/{id}     - Get user (admin only)
+        PUT    /users-service/{id}     - Update user (admin only)
+        DELETE /users-service/{id}     - Delete user (admin only)
+
+    Args:
+        event: AWS Lambda event object.
+        context: AWS Lambda context object.
+
+    Returns:
+        HTTP response dict with statusCode, headers, and body.
+    """
     logger.info("Event: %s", json.dumps(event, default=str))
 
     http_method = (event.get("requestContext") or {}).get("http", {}).get("method", "").upper()

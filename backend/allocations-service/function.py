@@ -25,6 +25,15 @@ init_schema()
 
 
 def get_id_from_path(path: str) -> int | None:
+    """
+    Extract numeric allocation ID from URL path.
+
+    Args:
+        path: URL path string e.g. /allocations-service/7
+
+    Returns:
+        Integer ID if found, None otherwise.
+    """
     parts = [p for p in path.split("/") if p]
     for part in reversed(parts):
         try:
@@ -35,6 +44,20 @@ def get_id_from_path(path: str) -> int | None:
 
 
 def validate_allocation(body: dict, partial: bool = False) -> str | None:
+    """
+    Validate allocation request body fields.
+
+    Args:
+        body: Request body dict containing allocation fields.
+        partial: If True, skips required field checks for partial updates.
+
+    Returns:
+        Error message string if validation fails, None if valid.
+
+    Validation rules:
+        - allocation_percentage must be between 1 and 100 (per individual project).
+        - end_date must be after start_date if both are provided.
+    """
     if not partial:
         if not body.get("resource_id"):
             return "resource_id is required"
@@ -62,6 +85,19 @@ def validate_allocation(body: dict, partial: bool = False) -> str | None:
 
 @require_auth(min_role="viewer")
 def list_allocations(event: dict, context, current_user: dict = None) -> dict:
+    """
+    List all allocations with optional filtering.
+    Also returns over_allocated_resources: resources whose total allocation
+    across active projects exceeds 100%.
+
+    Query params:
+        resource_id (int): Filter by resource.
+        project_id (int): Filter by project.
+
+    Returns:
+        200: List of allocations and over_allocated_resources.
+        500: Database error.
+    """
     params = event.get("queryStringParameters") or {}
     resource_id = params.get("resource_id")
     project_id = params.get("project_id")
@@ -117,6 +153,17 @@ def list_allocations(event: dict, context, current_user: dict = None) -> dict:
 
 @require_auth(min_role="viewer")
 def get_allocation(event: dict, context, allocation_id: int = None, current_user: dict = None) -> dict:
+    """
+    Get a single allocation by ID.
+
+    Args:
+        allocation_id: Integer allocation ID from URL path.
+
+    Returns:
+        200: Allocation object with resource and project info joined.
+        404: Allocation not found.
+        500: Database error.
+    """
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -143,6 +190,28 @@ def get_allocation(event: dict, context, allocation_id: int = None, current_user
 
 @require_auth(min_role="manager")
 def create_allocation(event: dict, context, current_user: dict = None) -> dict:
+    """
+    Create a new resource-project allocation.
+
+    Request body:
+        resource_id (int): Resource to allocate. Required.
+        project_id (int): Project to allocate to. Required.
+        allocation_percentage (int): Percentage between 1 and 100. Required.
+        start_date (str): ISO date. Optional.
+        end_date (str): ISO date. Must be after start_date. Optional.
+
+    Business rules:
+        - Allocation to completed projects is blocked.
+        - Allocation to projects past their end_date is blocked.
+        - Duplicate allocation (same resource + project) is blocked.
+        - Over-allocation across projects is allowed but returns a warning field.
+
+    Returns:
+        201: Created allocation object. May include warning if over-allocated.
+        400: Validation error or business rule violation.
+        404: Resource or project not found.
+        500: Database error.
+    """
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
@@ -221,6 +290,23 @@ def create_allocation(event: dict, context, current_user: dict = None) -> dict:
 
 @require_auth(min_role="manager")
 def update_allocation(event: dict, context, allocation_id: int = None, current_user: dict = None) -> dict:
+    """
+    Update an existing allocation.
+
+    Args:
+        allocation_id: Integer allocation ID from URL path.
+
+    Request body:
+        allocation_percentage (int): New percentage between 1 and 100. Optional.
+        start_date (str): ISO date. Optional.
+        end_date (str): ISO date. Optional.
+
+    Returns:
+        200: Updated allocation object. May include warning if over-allocated.
+        400: Validation error or no fields provided.
+        404: Allocation not found.
+        500: Database error.
+    """
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
@@ -281,6 +367,17 @@ def update_allocation(event: dict, context, allocation_id: int = None, current_u
 
 @require_auth(min_role="manager")
 def delete_allocation(event: dict, context, allocation_id: int = None, current_user: dict = None) -> dict:
+    """
+    Delete an allocation.
+
+    Args:
+        allocation_id: Integer allocation ID from URL path.
+
+    Returns:
+        204: Allocation deleted successfully.
+        404: Allocation not found.
+        500: Database error.
+    """
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -297,6 +394,23 @@ def delete_allocation(event: dict, context, allocation_id: int = None, current_u
 
 
 def handler(event=None, context=None):
+    """
+    Main Lambda entry point. Routes requests to the appropriate handler.
+
+    Supported routes:
+        POST   /allocations-service          - Create allocation (manager+)
+        GET    /allocations-service          - List allocations (viewer+)
+        GET    /allocations-service/{id}     - Get allocation (viewer+)
+        PUT    /allocations-service/{id}     - Update allocation (manager+)
+        DELETE /allocations-service/{id}     - Delete allocation (manager+)
+
+    Args:
+        event: AWS Lambda event object.
+        context: AWS Lambda context object.
+
+    Returns:
+        HTTP response dict with statusCode, headers, and body.
+    """
     logger.info("Event: %s", json.dumps(event, default=str))
 
     http_method = (event.get("requestContext") or {}).get("http", {}).get("method", "").upper()

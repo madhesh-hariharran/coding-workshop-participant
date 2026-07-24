@@ -25,6 +25,16 @@ init_schema()
 
 
 def validate_resource(body: dict, partial: bool = False) -> str | None:
+    """
+    Validate resource request body fields.
+
+    Args:
+        body: Request body dict containing resource fields.
+        partial: If True, skips required field checks for partial updates.
+
+    Returns:
+        Error message string if validation fails, None if valid.
+    """
     if not partial and not (body.get("name") or "").strip():
         return "name is required"
     if (body.get("name") or "").strip() and len((body.get("name") or "").strip()) > 255:
@@ -33,6 +43,16 @@ def validate_resource(body: dict, partial: bool = False) -> str | None:
 
 
 def get_id_from_path(path: str) -> int | None:
+    """
+    Extract numeric resource ID from URL path.
+    Returns None for non-numeric path segments like eligible-users.
+
+    Args:
+        path: URL path string e.g. /resources-service/3
+
+    Returns:
+        Integer ID if found, None otherwise.
+    """
     parts = [p for p in path.split("/") if p]
     for part in reversed(parts):
         try:
@@ -44,6 +64,17 @@ def get_id_from_path(path: str) -> int | None:
 
 @require_auth(min_role="manager")
 def get_eligible_users(event: dict, context, current_user: dict = None) -> dict:
+    """
+    Return users eligible to be linked to a resource.
+
+    Eligible users are those who:
+        - Share the same email domain as the requesting user.
+        - Are not already linked to any existing resource.
+
+    Returns:
+        200: List of eligible user objects (id, name, email, role).
+        500: Database error.
+    """
     """
     Returns users from the same email domain as the requester
     who are not already linked to a resource.
@@ -72,6 +103,17 @@ def get_eligible_users(event: dict, context, current_user: dict = None) -> dict:
 
 @require_auth(min_role="viewer")
 def list_resources(event: dict, context, current_user: dict = None) -> dict:
+    """
+    List all resources with total allocation aggregated across active projects.
+
+    Query params:
+        search (str): Case-insensitive search on name, role_title, department.
+        department (str): Filter by department name.
+
+    Returns:
+        200: List of resources with total_allocation and linked user info.
+        500: Database error.
+    """
     params = event.get("queryStringParameters") or {}
     search = params.get("search")
     department = params.get("department")
@@ -109,6 +151,17 @@ def list_resources(event: dict, context, current_user: dict = None) -> dict:
 
 @require_auth(min_role="viewer")
 def get_resource(event: dict, context, resource_id: int = None, current_user: dict = None) -> dict:
+    """
+    Get a single resource by ID including total allocation across active projects.
+
+    Args:
+        resource_id: Integer resource ID from URL path.
+
+    Returns:
+        200: Resource object with user info and total_allocation.
+        404: Resource not found.
+        500: Database error.
+    """
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -136,6 +189,21 @@ def get_resource(event: dict, context, resource_id: int = None, current_user: di
 
 @require_auth(min_role="manager")
 def create_resource(event: dict, context, current_user: dict = None) -> dict:
+    """
+    Create a new resource (team member).
+
+    Request body:
+        name (str): Resource full name. Required.
+        role_title (str): Job title e.g. Backend Engineer. Optional.
+        department (str): Department name. Optional.
+        user_id (int): Optional user account to link. Must not already be linked.
+
+    Returns:
+        201: Created resource object.
+        400: Validation error or duplicate user link.
+        404: User not found.
+        500: Database error.
+    """
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
@@ -178,6 +246,21 @@ def create_resource(event: dict, context, current_user: dict = None) -> dict:
 
 @require_auth(min_role="manager")
 def update_resource(event: dict, context, resource_id: int = None, current_user: dict = None) -> dict:
+    """
+    Update an existing resource.
+
+    Args:
+        resource_id: Integer resource ID from URL path.
+
+    Request body:
+        Any subset of name, role_title, department, user_id.
+
+    Returns:
+        200: Updated resource object.
+        400: Duplicate user link or no fields provided.
+        404: Resource not found.
+        500: Database error.
+    """
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
@@ -230,6 +313,17 @@ def update_resource(event: dict, context, resource_id: int = None, current_user:
 
 @require_auth(min_role="admin")
 def delete_resource(event: dict, context, resource_id: int = None, current_user: dict = None) -> dict:
+    """
+    Delete a resource and all its allocations (CASCADE).
+
+    Args:
+        resource_id: Integer resource ID from URL path.
+
+    Returns:
+        204: Resource deleted successfully.
+        404: Resource not found.
+        500: Database error.
+    """
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -246,6 +340,24 @@ def delete_resource(event: dict, context, resource_id: int = None, current_user:
 
 
 def handler(event=None, context=None):
+    """
+    Main Lambda entry point. Routes requests to the appropriate handler.
+
+    Supported routes:
+        GET    /resources-service/eligible-users - Get linkable users (manager+)
+        POST   /resources-service               - Create resource (manager+)
+        GET    /resources-service               - List resources (viewer+)
+        GET    /resources-service/{id}          - Get resource (viewer+)
+        PUT    /resources-service/{id}          - Update resource (manager+)
+        DELETE /resources-service/{id}          - Delete resource (admin)
+
+    Args:
+        event: AWS Lambda event object.
+        context: AWS Lambda context object.
+
+    Returns:
+        HTTP response dict with statusCode, headers, and body.
+    """
     logger.info("Event: %s", json.dumps(event, default=str))
 
     http_method = (event.get("requestContext") or {}).get("http", {}).get("method", "").upper()

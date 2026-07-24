@@ -25,6 +25,16 @@ init_schema()
 
 
 def validate_project(body: dict, partial: bool = False) -> str | None:
+    """
+    Validate project request body fields.
+
+    Args:
+        body: Request body dict containing project fields.
+        partial: If True, skips required field checks (used for PATCH/PUT updates).
+
+    Returns:
+        Error message string if validation fails, None if valid.
+    """
     if not partial and not (body.get("name") or "").strip():
         return "name is required"
     if not partial and len((body.get("name") or "").strip()) > 255:
@@ -60,6 +70,17 @@ def validate_project(body: dict, partial: bool = False) -> str | None:
 
 @require_auth(min_role="viewer")
 def list_projects(event: dict, context, current_user: dict = None) -> dict:
+    """
+    List all projects with optional filtering.
+
+    Query params:
+        status (str): Filter by project status (active, at_risk, on_hold, completed).
+        search (str): Case-insensitive search on name and description.
+
+    Returns:
+        200: List of projects with total count.
+        500: Database error.
+    """
     params = event.get("queryStringParameters") or {}
     status_filter = params.get("status")
     search = params.get("search")
@@ -91,6 +112,17 @@ def list_projects(event: dict, context, current_user: dict = None) -> dict:
 
 @require_auth(min_role="viewer")
 def get_project(event: dict, context, project_id: int = None, current_user: dict = None) -> dict:
+    """
+    Get a single project by ID.
+
+    Args:
+        project_id: Integer project ID from URL path.
+
+    Returns:
+        200: Project object with owner_name.
+        404: Project not found.
+        500: Database error.
+    """
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -111,6 +143,24 @@ def get_project(event: dict, context, project_id: int = None, current_user: dict
 
 @require_auth(min_role="manager")
 def create_project(event: dict, context, current_user: dict = None) -> dict:
+    """
+    Create a new project.
+
+    Request body:
+        name (str): Project name. Required.
+        description (str): Optional description.
+        status (str): One of active, at_risk, on_hold, completed. Defaults to active.
+        start_date (str): ISO date string. Optional.
+        end_date (str): ISO date string. Must be after start_date. Optional.
+        budget_planned (float): Planned budget. Must be non-negative. Optional.
+        budget_consumed (float): Budget consumed so far. Must be non-negative. Optional.
+        owner_id (int): User ID of project owner. Defaults to current user.
+
+    Returns:
+        201: Created project object.
+        400: Validation error.
+        500: Database error.
+    """
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
@@ -151,6 +201,21 @@ def create_project(event: dict, context, current_user: dict = None) -> dict:
 
 @require_auth(min_role="manager")
 def update_project(event: dict, context, project_id: int = None, current_user: dict = None) -> dict:
+    """
+    Update an existing project (partial update supported).
+
+    Args:
+        project_id: Integer project ID from URL path.
+
+    Request body:
+        Any subset of project fields. All fields optional for partial updates.
+
+    Returns:
+        200: Updated project object.
+        400: Validation error or no fields provided.
+        404: Project not found.
+        500: Database error.
+    """
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
@@ -196,6 +261,17 @@ def update_project(event: dict, context, project_id: int = None, current_user: d
 
 @require_auth(min_role="admin")
 def delete_project(event: dict, context, project_id: int = None, current_user: dict = None) -> dict:
+    """
+    Delete a project and all its deliverables and allocations (CASCADE).
+
+    Args:
+        project_id: Integer project ID from URL path.
+
+    Returns:
+        204: Project deleted successfully.
+        404: Project not found.
+        500: Database error.
+    """
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -212,6 +288,15 @@ def delete_project(event: dict, context, project_id: int = None, current_user: d
 
 
 def get_project_id_from_path(path: str) -> int | None:
+    """
+    Extract numeric project ID from URL path.
+
+    Args:
+        path: URL path string e.g. /projects-service/42
+
+    Returns:
+        Integer ID if found, None otherwise.
+    """
     parts = [p for p in path.split("/") if p]
     for part in reversed(parts):
         try:
@@ -222,6 +307,24 @@ def get_project_id_from_path(path: str) -> int | None:
 
 
 def handler(event=None, context=None):
+    """
+    Main Lambda entry point. Routes requests to the appropriate handler.
+
+    Supported routes:
+        POST   /projects-service          - Create project (manager+)
+        GET    /projects-service          - List projects (viewer+)
+        GET    /projects-service/{id}     - Get project (viewer+)
+        PUT    /projects-service/{id}     - Update project (manager+)
+        PATCH  /projects-service/{id}     - Partial update (manager+)
+        DELETE /projects-service/{id}     - Delete project (admin)
+
+    Args:
+        event: AWS Lambda event object.
+        context: AWS Lambda context object.
+
+    Returns:
+        HTTP response dict with statusCode, headers, and body.
+    """
     logger.info("Event: %s", json.dumps(event, default=str))
 
     http_method = (event.get("requestContext") or {}).get("http", {}).get("method", "").upper()

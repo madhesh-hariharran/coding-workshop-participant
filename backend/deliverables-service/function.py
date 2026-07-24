@@ -24,6 +24,15 @@ init_schema()
 
 
 def get_id_from_path(path: str) -> int | None:
+    """
+    Extract numeric deliverable ID from URL path.
+
+    Args:
+        path: URL path string e.g. /deliverables-service/5
+
+    Returns:
+        Integer ID if found, None otherwise.
+    """
     parts = [p for p in path.split("/") if p]
     for part in reversed(parts):
         try:
@@ -34,6 +43,20 @@ def get_id_from_path(path: str) -> int | None:
 
 
 def has_circular_dependency(conn, deliverable_id: int, proposed_depends_on: int) -> bool:
+    """
+    Check if setting a depends_on relationship would create a circular dependency.
+
+    Traverses the dependency chain upward from proposed_depends_on.
+    If the current deliverable_id is encountered during traversal, a cycle exists.
+
+    Args:
+        conn: Active psycopg3 database connection.
+        deliverable_id: ID of the deliverable being updated.
+        proposed_depends_on: ID of the deliverable that would become the dependency.
+
+    Returns:
+        True if a circular dependency would be created, False otherwise.
+    """
     """
     Check if setting deliverable_id.depends_on = proposed_depends_on
     would create a circular dependency.
@@ -57,6 +80,16 @@ def has_circular_dependency(conn, deliverable_id: int, proposed_depends_on: int)
 
 
 def validate_deliverable(body: dict, partial: bool = False) -> str | None:
+    """
+    Validate deliverable request body fields.
+
+    Args:
+        body: Request body dict containing deliverable fields.
+        partial: If True, skips required field checks for partial updates.
+
+    Returns:
+        Error message string if validation fails, None if valid.
+    """
     if not partial:
         if not (body.get("title") or "").strip():
             return "title is required"
@@ -76,6 +109,18 @@ def validate_deliverable(body: dict, partial: bool = False) -> str | None:
 
 @require_auth(min_role="viewer")
 def list_deliverables(event: dict, context, current_user: dict = None) -> dict:
+    """
+    List deliverables with optional filtering.
+
+    Query params:
+        project_id (int): Filter by project.
+        status (str): Filter by status (pending, in_progress, completed).
+        search (str): Case-insensitive search on title.
+
+    Returns:
+        200: List of deliverables with project_name and depends_on_title joined.
+        500: Database error.
+    """
     params = event.get("queryStringParameters") or {}
     project_id = params.get("project_id")
     status_filter = params.get("status")
@@ -118,6 +163,17 @@ def list_deliverables(event: dict, context, current_user: dict = None) -> dict:
 
 @require_auth(min_role="viewer")
 def get_deliverable(event: dict, context, deliverable_id: int = None, current_user: dict = None) -> dict:
+    """
+    Get a single deliverable by ID.
+
+    Args:
+        deliverable_id: Integer deliverable ID from URL path.
+
+    Returns:
+        200: Deliverable object with joined project and dependency info.
+        404: Deliverable not found.
+        500: Database error.
+    """
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -145,6 +201,24 @@ def get_deliverable(event: dict, context, deliverable_id: int = None, current_us
 
 @require_auth(min_role="contributor")
 def create_deliverable(event: dict, context, current_user: dict = None) -> dict:
+    """
+    Create a new deliverable scoped to a project.
+
+    Request body:
+        title (str): Deliverable title. Required.
+        project_id (int): Parent project ID. Required.
+        description (str): Optional description.
+        status (str): One of pending, in_progress, completed. Defaults to pending.
+        due_date (str): ISO date. Must be within project start and end dates.
+        depends_on (int): ID of another deliverable in the same project. Optional.
+        assignee_id (int): User ID of assignee. Optional.
+
+    Returns:
+        201: Created deliverable object.
+        400: Validation error, circular dependency, or date violation.
+        404: Project or dependency deliverable not found.
+        500: Database error.
+    """
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
@@ -209,6 +283,23 @@ def create_deliverable(event: dict, context, current_user: dict = None) -> dict:
 
 @require_auth(min_role="contributor")
 def update_deliverable(event: dict, context, deliverable_id: int = None, current_user: dict = None) -> dict:
+    """
+    Update an existing deliverable.
+
+    Args:
+        deliverable_id: Integer deliverable ID from URL path.
+
+    Request body:
+        Any subset of deliverable fields.
+        If status is completed, the depends_on deliverable must also be completed.
+        If depends_on is set, circular dependency check is performed.
+
+    Returns:
+        200: Updated deliverable object.
+        400: Circular dependency, blocked completion, or date violation.
+        404: Deliverable not found.
+        500: Database error.
+    """
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
@@ -291,6 +382,18 @@ def update_deliverable(event: dict, context, deliverable_id: int = None, current
 
 @require_auth(min_role="manager")
 def delete_deliverable(event: dict, context, deliverable_id: int = None, current_user: dict = None) -> dict:
+    """
+    Delete a deliverable.
+
+    Args:
+        deliverable_id: Integer deliverable ID from URL path.
+
+    Returns:
+        204: Deliverable deleted successfully.
+        400: Other deliverables depend on this one.
+        404: Deliverable not found.
+        500: Database error.
+    """
     try:
         conn = get_connection()
         with conn.cursor() as cur:
@@ -314,6 +417,23 @@ def delete_deliverable(event: dict, context, deliverable_id: int = None, current
 
 
 def handler(event=None, context=None):
+    """
+    Main Lambda entry point. Routes requests to the appropriate handler.
+
+    Supported routes:
+        POST   /deliverables-service          - Create deliverable (contributor+)
+        GET    /deliverables-service          - List deliverables (viewer+)
+        GET    /deliverables-service/{id}     - Get deliverable (viewer+)
+        PUT    /deliverables-service/{id}     - Update deliverable (contributor+)
+        DELETE /deliverables-service/{id}     - Delete deliverable (manager+)
+
+    Args:
+        event: AWS Lambda event object.
+        context: AWS Lambda context object.
+
+    Returns:
+        HTTP response dict with statusCode, headers, and body.
+    """
     logger.info("Event: %s", json.dumps(event, default=str))
 
     http_method = (event.get("requestContext") or {}).get("http", {}).get("method", "").upper()
