@@ -180,7 +180,8 @@ function DeliverableForm({ open, onClose, onSave, initial, projects }) {
               <InputLabel>Depends on (optional)</InputLabel>
               <Select name="depends_on" value={form.depends_on}
                 label="Depends on (optional)" onChange={handleChange}
-                MenuProps={{ disablePortal: true }}>
+                autoFocus={false}
+                MenuProps={{ autoFocus: false }}>
                 <MenuItem value="">No dependency</MenuItem>
                 {projectDeliverables.map((d) => (
                   <MenuItem key={d.id} value={d.id}>
