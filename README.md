@@ -245,7 +245,7 @@ All endpoints require `Authorization: Bearer <token>` except register and login.
 - Multiple deliverable dependencies (requires junction table migration)
 - Email notifications for deadline reminders and over-allocation alerts
 - Gantt chart view for project timelines
-- Frontend component tests (Jest + React Testing Library)
+- E2E tests with Playwright covering complete user workflows
 - Assignee field on deliverables is stored in the schema but not yet surfaced in the UI
 
 ---
