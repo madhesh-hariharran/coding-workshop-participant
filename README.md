@@ -22,13 +22,13 @@ This platform answers seven critical business questions:
 
 ---
 
-## What We Built
+## Development Philosophy
 
-Rather than chasing a visually impressive demo, we focused on building something that actually works the way a project manager would expect it to. Every interaction follows a predictable pattern. Forms validate as you type, not after you submit. Errors appear where the problem is, not in a generic alert at the top of the screen. Role-based access is enforced at every layer without the interface becoming confusing for lower-permission users.
+The priority throughout was building something that works the way a project manager would actually expect it to, rather than something that looks impressive in a screenshot. Every interaction follows a predictable pattern. Forms validate as you type. Errors appear next to the field that caused them. Role-based access adapts the interface without making it confusing for lower-permission users.
 
-The dependency chain visualization was a deliberate choice over adding more decorative UI. It directly answers one of the seven business questions and gives evaluators something tangible to explore. The dashboard was designed so a new user could look at it for 10 seconds and know exactly which projects need attention and why.
+The dependency chain visualization was chosen deliberately because it directly answers one of the seven core business questions and gives any user a clear picture of what is blocking progress and why. The dashboard was designed so that someone unfamiliar with the system could look at it for ten seconds and know which projects need attention.
 
-We also made sure the platform handles edge cases gracefully. Over-allocation is allowed with a visible warning rather than silently blocked, because managers need to see the full picture before deciding what to do. Circular dependencies are caught both on the backend and in the frontend form before any API call is made. Completed projects cannot receive new allocations. These are the kinds of rules that separate a demo from a real system.
+Edge cases are handled as first-class concerns rather than afterthoughts. Over-allocation is allowed with a visible warning rather than silently blocked, because managers need the full picture before deciding what to do. Circular dependencies are caught on both the backend and in the form before any API call is made. Completed projects cannot receive new allocations. Resource utilization automatically excludes allocations from completed projects, so freed-up capacity is reflected immediately.
 
 ---
 
@@ -84,19 +84,19 @@ backend/
 - Full CRUD with status tracking across In Progress, At Risk, On Hold, and Completed
 - Budget tracking showing consumed vs planned with color-coded progress bars
 - Two-section layout separating active and completed projects
-- Status and budget filters including an over-budget filter that applies automatically when navigated from a dashboard alert
+- Status and budget filters that apply automatically when navigated from dashboard alerts
 - Inline field editing on the project detail page without opening a modal
 
 ### Deliverables
-- Full CRUD scoped to projects with dynamic project date range validation
+- Full CRUD scoped to projects with dynamic date range validation against project start and end dates
 - Dependency tracking via a depends-on relationship
 - Circular dependency detection on both the backend and in the form before submission
 - Blocked completion enforcement: a deliverable cannot be marked complete if its dependency is not finished
-- Dependency chain visualization as an interactive tree in the project detail tabs, showing blocked status where relevant
+- Dependency chain visualization as an interactive tree in the project detail tabs, with blocked indicators where relevant
 
 ### Resources
 - Team member tracking with optional user account linking scoped to the same email domain
-- Total allocation percentage aggregated across all projects and shown inline
+- Total allocation percentage aggregated across active projects only, so completed project allocations do not inflate utilization figures
 - Over-allocation flagged visually on the resources page, allocations page, and dashboard
 
 ### Allocations
@@ -222,19 +222,21 @@ All endpoints require `Authorization: Bearer <token>` except register and login.
 
 ## Design Decisions and Trade-offs
 
-**Single depends_on per deliverable.** The schema uses a single integer foreign key for dependency rather than a junction table. This covers the majority of real-world use cases cleanly. Multiple dependency support is noted as a planned enhancement and would require a schema migration to a deliverable_dependencies junction table.
+**Single depends_on per deliverable.** The schema uses a single integer foreign key for dependency rather than a junction table. This covers the majority of real-world use cases cleanly. Multiple dependency support is noted as a planned enhancement and would require a schema migration to a `deliverable_dependencies` junction table.
 
-**Over-allocation as a warning, not a block.** Resources can be allocated beyond 100% total across projects. This is intentional. Managers need full visibility to make resourcing decisions, not a system that silently refuses to save their work. The warning is surfaced on the dashboard, allocations page, and resources page.
+**Over-allocation as a warning, not a block.** Resources can be allocated beyond 100% total across projects. Managers need full visibility to make resourcing decisions, not a system that refuses to save their work. The warning is surfaced on the dashboard, allocations page, and resources page.
 
-**Active status displayed as In Progress.** The database stores the value as `active` for schema consistency. The UI renders it as "In Progress" throughout, which is more natural for end users without requiring a data migration.
+**Completed project allocations excluded from utilization.** When a project is marked as completed, its allocations are excluded from the resource total allocation calculation. This means a resource's available capacity is reflected accurately as projects finish, without needing to delete historical allocation records.
+
+**Active status displayed as In Progress.** The database stores the value as `active` for schema consistency with the constraint definition. The UI renders it as "In Progress" throughout, which is more natural for end users.
 
 **Shared code copied per service.** `db.py` and `auth.py` are copied into each Lambda package rather than shared via a Lambda layer. This maintains full service isolation and simplifies the deployment pipeline.
 
 **Module-level DB connection.** The psycopg3 connection is held at module level so it persists across Lambda invocations within the same warm container, reducing connection overhead on subsequent requests.
 
-**JWT sub stored as string.** PyJWT 2.x requires the `sub` claim to be a string. All service code that reads `current_user["sub"]` casts it to `int()` at the point of database interaction. This is a known constraint documented to prevent regressions.
+**JWT sub stored as string.** PyJWT 2.x requires the `sub` claim to be a string. All service code that reads `current_user["sub"]` casts it to `int()` at the point of database interaction.
 
-**MUI v9 Grid.** Material UI v9 removed the `item` prop from Grid entirely. All layout grids in this project use flexbox via `Box` components instead, which avoids the silent rendering failures that the old Grid API produced.
+**MUI v9 Grid.** Material UI v9 removed the `item` prop from Grid. All layout grids use flexbox via `Box` components instead, which avoids the silent rendering failures that the old Grid API produced.
 
 ---
 
@@ -250,7 +252,7 @@ All endpoints require `Authorization: Bearer <token>` except register and login.
 
 ## Testing
 
-Unit tests, integration tests, and performance tests all passed. For a full breakdown of methodology, coverage, and results see [docs/testing.md](./docs/testing.md).
+179 tests across unit, integration, and performance suites — all passed. For a full breakdown of methodology, coverage, and results see [docs/testing.md](./docs/testing.md).
 
 ---
 
@@ -270,5 +272,4 @@ scripts/     Seed script, integration test suite, and performance tests
 ## Author
 
 Madhesh Hariharran Sundaresan
-B.Tech Artificial Intelligence and Data Science
 Shiv Nadar University Chennai

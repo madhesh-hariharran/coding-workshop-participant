@@ -2,7 +2,7 @@
 
 > [Back to README](../README.md)
 
-This document covers the full testing approach for the ACME Project Management Platform, including methodology, results, and honest notes on coverage gaps.
+This document covers the full testing approach for the ACME Project Management Platform, including methodology, results, and honest notes on coverage.
 
 ---
 
@@ -11,39 +11,39 @@ This document covers the full testing approach for the ACME Project Management P
 | Test Type | Tool | Tests | Passed | Failed |
 |---|---|---|---|---|
 | Backend Unit Tests | pytest | 73 | 73 | 0 |
+| Frontend Unit and Component Tests | Jest + RTL | 77 | 77 | 0 |
 | API Integration Tests | curl + bash | 29 | 29 | 0 |
 | Performance Tests | Artillery | 975 requests | 975 | 0 |
-| Frontend Component Tests | Jest + RTL | Planned | | |
+
+**Total: 179 tests, 0 failures**
 
 ---
 
 ## Backend Unit Tests
 
-**Tool:** pytest 9.1.1  
-**Location:** `backend/tests/`  
+**Tool:** pytest 9.1.1
+**Location:** `backend/tests/`
 **Command:**
 ```sh
-cd backend && python3.14 -m pytest tests/ -v
+cd backend && python3.14 -m pytest tests/ -v 2>&1 | tee ../scripts/pytest-results.txt
 ```
 
 **Result:** 73 passed, 0 failed in 1.25 seconds
 
 ### What is tested
 
-Each service has its own test file. Tests target pure logic functions that have no database dependency and can be executed in isolation with mocked infrastructure.
-
 **test_auth.py** (12 tests)
 - JWT encode returns a valid string token
-- JWT decode returns correct payload fields (sub, email, role)
+- JWT decode returns correct payload (sub, email, role)
 - JWT sub is stored as string per PyJWT 2.x requirement
 - Invalid token raises InvalidTokenError
-- Bearer token extraction from event headers
+- Bearer token extraction from Authorization header
 - Missing token returns None
-- Role hierarchy ordering (admin > manager > contributor > viewer)
-- require_auth decorator returns 401 when token is missing
-- require_auth decorator returns 403 when role is insufficient
-- require_auth decorator passes through when role is sufficient
-- Response helper formats statusCode, headers, and body correctly
+- Role hierarchy: admin > manager > contributor > viewer
+- require_auth returns 401 when token is missing
+- require_auth returns 403 when role is insufficient
+- require_auth passes through when role is sufficient
+- Response helper formats statusCode, headers, and body
 - Response helper handles error payloads
 
 **test_auth_service.py** (9 tests)
@@ -51,7 +51,7 @@ Each service has its own test file. Tests target pure logic functions that have 
 - Malformed email rejected
 - Email with no domain rejected
 - Valid email accepted
-- Valid email with subdomain accepted
+- Valid subdomain email accepted
 - Password below minimum length rejected
 - Password with no uppercase rejected
 - Password with no digit rejected
@@ -71,13 +71,13 @@ Each service has its own test file. Tests target pure logic functions that have 
 - Path ID extraction from URL
 
 **test_deliverables.py** (12 tests)
-- Circular dependency: deliverable depending on itself
-- Circular dependency: direct two-node chain (A depends on B, try to make B depend on A)
-- Circular dependency: three-node chain (A depends on B depends on C, try to make A depend on C)
-- No circular dependency: new independent deliverable
+- Circular dependency: self reference
+- Circular dependency: direct two-node chain
+- Circular dependency: three-node chain
+- No circular: independent deliverable
 - Title required on create
 - project_id required on create
-- Valid deliverable passes validation
+- Valid deliverable passes
 - Invalid status rejected
 - All valid statuses accepted (pending, in_progress, completed)
 - Partial update skips required fields
@@ -89,7 +89,7 @@ Each service has its own test file. Tests target pure logic functions that have 
 - project_id required
 - allocation_percentage required
 - Percentage of 0 rejected
-- Percentage over 100 rejected with message referencing 100
+- Percentage over 100 rejected
 - Percentage of 100 accepted
 - Percentage of 1 accepted
 - Percentage of 50 accepted
@@ -106,9 +106,9 @@ Each service has its own test file. Tests target pure logic functions that have 
 - Valid name accepted
 - Valid resource with all fields accepted
 - Partial update skips name requirement
-- eligible-users path detection from URL string
+- eligible-users path detection
 - Numeric ID extracted from path
-- eligible-users path returns None (not parsed as integer)
+- eligible-users path returns None
 - Empty path returns None
 
 **test_users.py** (6 tests)
@@ -119,31 +119,136 @@ Each service has its own test file. Tests target pure logic functions that have 
 - Admin cannot delete their own account (400)
 - Path with no ID returns None
 
-### Key design decisions for tests
+### Key design note
 
-**Module isolation:** Each service has its own `function.py` but they all share the same module name. Python caches modules by name, so importing `function` in one test file would contaminate subsequent test files. Each test file uses an `autouse` fixture that inserts the correct service directory into `sys.path`, imports the module, and removes it from the cache after the test completes.
+Each service has its own `function.py` sharing the same module name. Python caches modules by name, causing cross-service contamination if not handled. Each test file uses an `autouse` fixture that inserts the correct service path into `sys.path`, imports the module, and clears the cache after every test.
 
-**No database required:** All tests mock `init_schema` to prevent the module-level schema initialization from attempting a real database connection. Functions that interact with the database are tested at the integration level instead.
+---
+
+## Frontend Unit and Component Tests
+
+**Tool:** Jest 29 + React Testing Library
+**Location:** `frontend/src/__tests__/`
+**Command:**
+```sh
+cd frontend && npx jest --no-coverage 2>&1 | tee src/__tests__/jest-results.txt
+```
+
+**Result:** 77 passed, 0 failed in 1.996 seconds
+
+### What is tested
+
+**validation.test.js** (35 tests)
+
+Project form validation:
+- Name required, name too long, valid name
+- end_date before start_date rejected, valid range accepted
+- Negative budget rejected, zero budget accepted, non-numeric budget rejected
+
+Deliverable form validation:
+- Title required, title too long, valid title
+- Due date before project start date rejected
+- Due date after project end date rejected
+- Due date within project range accepted
+- Empty due date accepted
+
+Allocation form validation:
+- resource_id, project_id, allocation_percentage all required
+- Percentage 0 rejected, over 100 rejected, 100 accepted, 1 accepted
+- Non-numeric percentage rejected
+- end_date before start_date rejected, valid range accepted
+
+Login form validation:
+- Email required, invalid format rejected, valid email accepted
+- Password required, non-empty password accepted
+
+Circular dependency detection:
+- No circular: new deliverable depending on existing chain
+- Direct circular: A depends on B, B tries to depend on A
+- Three-chain circular: A→B→C, A tries to depend on C
+- Self dependency detected
+- Independent deliverable: no cycle
+
+**statusbadge.test.jsx** (7 tests)
+- `active` renders as "In Progress"
+- `at_risk` renders as "At Risk"
+- `on_hold` renders as "On Hold"
+- `completed` renders as "Completed"
+- `pending` renders as "Pending"
+- `in_progress` renders as "In Progress"
+- Unknown status renders as-is
+
+**dependencychain.test.js** (9 tests)
+
+Tree building:
+- Linear chain produces one root
+- Root has correct single child
+- Depth-2 node has correct child
+- Branching tree: one root with two children
+- Root with two shared-parent children renders both
+- Two independent deliverables produce two roots
+
+isBlocked logic:
+- Node with no depends_on is not blocked
+- Node depending on completed node is not blocked
+- Node depending on pending node is blocked
+
+**api.test.js** (26 tests)
+
+Auth token handling:
+- Request includes Authorization header when token exists
+- No header when token is missing
+- Token stored correctly on login
+- Token removed on logout
+
+API response parsing:
+- Error message extracted from response data
+- Falls back to default when error field missing
+- Falls back to default when response is undefined
+- Network error has no response
+
+Auth API request shapes:
+- Login body has email and password
+- Register body has all required fields
+- Role must be one of four valid values
+
+Projects API request shapes:
+- Create body has required name field
+- Valid project statuses
+- Budget fields are numeric
+- Date range validation
+
+Allocations API request shapes:
+- Create body has required fields
+- Percentage 1-100 is valid
+- Percentage outside range is invalid
+- Over-allocation warning in response body
+- Successful allocation has no warning
+
+Deliverables API request shapes:
+- Create body has required fields
+- Valid deliverable statuses
+- depends_on is optional
+- Circular dependency error response shape
+- Blocked completion error response shape
 
 ---
 
 ## API Integration Tests
 
-**Tool:** bash + curl + jq  
-**Location:** `scripts/test.sh`  
+**Tool:** bash + curl + jq
+**Location:** `scripts/test.sh`
 **Command:**
 ```sh
-./scripts/test.sh https://d2wqugjglyrwvr.cloudfront.net/api
+./scripts/test.sh https://d2wqugjglyrwvr.cloudfront.net/api 2>&1 | tee scripts/integration-test-results.txt
 ```
 
 **Result:** 29 passed, 0 failed
 
 These tests run against the live production deployment and verify real end-to-end behavior including database writes, JWT validation, and business rule enforcement.
 
-### Test coverage by service
-
 **Auth Service (4 tests)**
-- Register a new user returns token and user object
+- Register new admin user returns token and user object
 - Login with correct credentials returns token
 - Login with wrong password returns error
 - GET /me without token returns 401
@@ -173,7 +278,7 @@ These tests run against the live production deployment and verify real end-to-en
 **Allocations Service (6 tests)**
 - Create allocation
 - Allow over-allocation with warning message
-- Warning message is present in response body
+- Warning message present in response body
 - Reject duplicate allocation to same project
 - Reject allocation to completed project
 - List allocations returns over_allocated_resources field
@@ -186,11 +291,11 @@ These tests run against the live production deployment and verify real end-to-en
 
 ## Performance Tests
 
-**Tool:** Artillery 2.0.33  
-**Location:** `scripts/artillery.yml`  
+**Tool:** Artillery 2.0.33
+**Location:** `scripts/artillery.yml`
 **Command:**
 ```sh
-npx artillery run scripts/artillery.yml --output scripts/artillery-report.json
+npx artillery run scripts/artillery.yml --output scripts/artillery-report.json 2>&1 | tee scripts/performance-test-results.txt
 ```
 
 **Configuration:**
@@ -214,9 +319,9 @@ npx artillery run scripts/artillery.yml --output scripts/artillery-report.json
 
 **Interpretation:**
 
-The median response time of 18ms reflects warm Lambda performance, which is the expected state during a live session. The high p95 and p99 values (4-5 seconds) are Lambda cold starts triggered when a container has been idle. This is a known characteristic of serverless deployment and not a code-level performance issue.
+The median response time of 18ms reflects warm Lambda performance. The high p95 and p99 values are Lambda cold starts triggered when a container has been idle — a known characteristic of serverless architecture, not a code-level performance issue.
 
-To avoid cold start delays during a presentation or demo, run the warm-up script a few minutes before:
+To avoid cold start delays during a demo, run the warm-up script a few minutes before presenting:
 
 ```sh
 curl -s https://d2wqugjglyrwvr.cloudfront.net/api/auth-service/health > /dev/null
@@ -230,34 +335,26 @@ Lambda containers stay warm for approximately 15 minutes after the last request.
 
 ---
 
-## Frontend Component Tests
+## Manual Verification
 
-Frontend component tests using Jest and React Testing Library are planned but not yet implemented. The following areas are scoped for coverage:
+The following behaviors were verified manually through the UI and confirmed working:
 
-**Form validation logic**
-- LoginContent: email format validation, password required
-- RegisterContent: password strength rules, role selection
-- ProjectForm: date range validation, budget field validation
-- DeliverableForm: due date against project dates, circular dependency check
-- AllocationForm: duplicate project detection, percentage cap
+**Completed project allocation exclusion**
+When a project status is changed to Completed, the resource total allocation percentage updates immediately to exclude that project. A resource previously showing 120% total (50% on Project A + 70% on Project B) correctly drops to 50% after Project B is marked completed. Verified on the Resources page and Dashboard resource utilization panel.
 
-**Component behavior**
-- StatusBadge renders correct label and color for each status value
-- RoleGuard hides or shows content based on current user role
-- DependencyChain renders tree structure and blocked indicators correctly
-- ProjectCard displays over-budget chip when consumption exceeds planned
+**Dependency chain branching**
+When multiple deliverables share the same parent dependency, the dependency chain tab correctly renders them as branches at the same indentation level rather than a linear chain. Verified with two deliverables both depending on a single root deliverable.
 
-**API interaction**
-- Axios interceptor attaches Authorization header
-- 401 response triggers logout and redirect except for auth endpoints
+**Demo mode login**
+All four demo buttons on the login page successfully authenticate and redirect to the dashboard with the correct role permissions applied. Verified for Admin, Manager, Contributor, and Viewer roles.
 
-These tests will be added to `frontend/src/__tests__/` and run with:
+---
 
-```sh
-cd frontend && npm test
-```
+## What is Not Covered
 
-Results will be updated in this document once implemented.
+**E2E tests:** Playwright or Cypress end-to-end tests covering complete user workflows are planned but not yet implemented. The integration test suite covers API behavior end-to-end against production, and manual verification covers UI workflows.
+
+**Frontend component tests with full MUI provider:** Component tests requiring the full Material UI theme provider setup are not included. The current component tests (StatusBadge) cover components that render without provider dependencies.
 
 ---
 
@@ -265,9 +362,12 @@ Results will be updated in this document once implemented.
 
 ```sh
 # Backend unit tests
-cd backend && python3.14 -m pytest tests/ -v 2>&1 | tee scripts/pytest-results.txt && cd ..
+cd backend && python3.14 -m pytest tests/ -v 2>&1 | tee ../scripts/pytest-results.txt && cd ..
 
-# Integration tests (requires production to be running)
+# Frontend tests
+cd frontend && npx jest --no-coverage 2>&1 | tee src/__tests__/jest-results.txt && cd ..
+
+# Integration tests
 ./scripts/test.sh https://d2wqugjglyrwvr.cloudfront.net/api 2>&1 | tee scripts/integration-test-results.txt
 
 # Performance tests
